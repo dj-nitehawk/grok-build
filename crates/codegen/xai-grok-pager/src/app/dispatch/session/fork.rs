@@ -14,6 +14,7 @@ use crate::scrollback::blocks::SessionEvent;
 use crate::scrollback::state::ScrollbackState;
 use agent_client_protocol as acp;
 use std::time::Instant;
+
 /// Top-level `/fork` dispatcher. Resolves the worktree decision: an
 /// explicit `--worktree` / `--no-worktree` flag short-circuits to
 /// [`dispatch_fork_resolved`]. When no flag is given and a persisted
@@ -268,7 +269,7 @@ pub(in crate::app::dispatch) fn dispatch_fork_resolved(
 /// Build the placeholder [`AgentView`] for a fork. Centralises the
 /// `AgentSession`/spinner construction shared by both worktree and
 /// no-worktree branches so the parallel struct literal does not drift.
-fn build_fork_placeholder(
+pub(super) fn build_fork_placeholder(
     app: &AppView,
     new_id: AgentId,
     parent_id: AgentId,

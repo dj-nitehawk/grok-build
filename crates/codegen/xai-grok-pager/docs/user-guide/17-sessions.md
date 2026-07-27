@@ -118,6 +118,16 @@ Branch the current session into a peer agent that starts from a copy of the conv
 
 Pass an optional `directive` to set the new session's first prompt. Use `--worktree` or `--no-worktree` to choose whether the fork runs in a new git worktree; omit both to be asked each time. The `--at <turn>` flag is not supported in this version.
 
+### Handoff
+
+Start a **new empty** peer session seeded with a task-focused summary of the current conversation:
+
+```
+/handoff <task for the new session>
+```
+
+Unlike `/fork`, handoff does not copy history. The model writes a concise note that retains only details relevant to the task you pass (files, symbols, decisions, errors, stop point), then the new session is seeded with that note plus the task. Use this when context has grown noisy and you want a clean agent focused on one next goal.
+
 ### Rename
 
 Rename the current session's title:
