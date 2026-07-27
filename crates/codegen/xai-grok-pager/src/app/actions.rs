@@ -759,6 +759,11 @@ pub enum Action {
     /// resolves the worktree question (via flag or the local
     /// QuestionView modal) before constructing the placeholder.
     Fork(crate::slash::commands::fork::ForkArgs),
+    /// Generate a task-scoped handoff note and open a new empty peer session
+    /// seeded with that note + task. Does not copy full history (unlike fork).
+    Handoff {
+        task: String,
+    },
     /// Submit-path action emitted by the local fork worktree question
     /// modal. Routes directly to `dispatch_fork_resolved`.
     ForkAnswered {
@@ -1958,6 +1963,12 @@ pub enum Effect {
         /// Correlates minimal responses; fullscreen leaves this unset.
         minimal_request_id: Option<uuid::Uuid>,
     },
+    /// Generate a task-scoped handoff note via `x.ai/handoff`.
+    Handoff {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        task: String,
+    },
     /// Request a session recap via the x.ai/recap ext method. Fire-and-forget:
     /// the recap arrives later as a `SessionRecap` notification.
     SendRecap {
@@ -2800,6 +2811,18 @@ pub enum TaskResult {
         result: Result<String, String>,
         /// Correlates minimal responses; fullscreen leaves this unset.
         minimal_request_id: Option<uuid::Uuid>,
+    },
+    /// Handoff note generated successfully; open a new empty session and seed it.
+    HandoffReady {
+        /// Parent agent that requested the handoff.
+        agent_id: AgentId,
+        note: String,
+        task: String,
+    },
+    /// Handoff note generation failed.
+    HandoffFailed {
+        agent_id: AgentId,
+        error: String,
     },
     /// `x.ai/recap` request acknowledged (fire-and-forget). The recap itself
     /// arrives separately as a `SessionRecap` notification; this only carries
