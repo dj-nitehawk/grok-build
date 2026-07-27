@@ -51,6 +51,10 @@ pub struct AppRenderParams<'a> {
     /// attached-agent popup). Feeds the hint path so the bar never
     /// advertises `Esc cancel` while an app-level owner would consume it.
     pub esc_owned_before_agent: bool,
+    /// Billing quota fetch in flight (Alt+Q / silent cache refresh). Drives
+    /// the prompt info-line `"refreshing..."` chip; lives on `AppView` so
+    /// the agent view cannot see it without this param.
+    pub billing_fetch_in_flight: bool,
 }
 /// What the bottom shortcuts bar renders this frame.
 enum ShortcutsBarContent {
@@ -875,6 +879,7 @@ impl AgentView {
             voice_listening,
             voice_interim,
             esc_owned_before_agent,
+            billing_fetch_in_flight,
         } = app_params;
         self.scrollback.begin_frame();
         self.in_dashboard_overlay = in_dashboard_overlay;
@@ -2494,7 +2499,6 @@ impl AgentView {
                 bold: false,
             });
         }
-        let mode_flags: &[PromptFlag] = &mode_flags_vec;
         let multiline = self.multiline_mode;
         let warning = self.credit_balance.as_ref().and_then(|bal| {
             crate::views::credit_bar::usage_warning_for_session(
@@ -2511,10 +2515,32 @@ impl AgentView {
             Some(eff) => format!("{model_id} ({eff})"),
             None => model_id,
         };
+        // Context + quota chips assembled in credit_bar so this hot upstream
+        // file only supplies mode flags and PromptInfo (no fork-only fields).
+        let ctx_used = self.context_state.as_ref().map(|c| c.used);
+        let model_window = self.session.models.get_context_window();
+        let ctx_total = self
+            .context_state
+            .as_ref()
+            .and_then(|c| (c.total > 0).then_some(c.total))
+            .or(model_window);
+        let border_chips = crate::views::credit_bar::PromptBorderChips::for_prompt(
+            self.chat_kind,
+            ctx_used,
+            ctx_total,
+            &theme,
+            self.billing_surface_visible,
+            billing_fetch_in_flight,
+            self.credit_balance.as_ref(),
+        );
+        let info_flags_vec = border_chips.with_mode_flags(mode_flags_vec);
+        let info_flags: &[PromptFlag] = &info_flags_vec;
+        let chip_only_flags = border_chips.chip_only_flags();
+        let chip_only: &[PromptFlag] = &chip_only_flags;
         let info = match &self.prompt_mode {
             PromptMode::Normal => PromptInfo {
                 model_name: &model_label,
-                flags: mode_flags,
+                flags: info_flags,
                 multiline,
                 usage_warning,
                 usage_warning_critical,
@@ -2524,7 +2550,7 @@ impl AgentView {
                 editing_label = format!("editing queued #{pos}");
                 PromptInfo {
                     model_name: &editing_label,
-                    flags: mode_flags,
+                    flags: info_flags,
                     multiline,
                     usage_warning,
                     usage_warning_critical,
@@ -2534,7 +2560,7 @@ impl AgentView {
         let info = if let Some(label) = self.prompt_input_mode.prompt_info_override() {
             PromptInfo {
                 model_name: label,
-                flags: &[],
+                flags: chip_only,
                 multiline: false,
                 usage_warning,
                 usage_warning_critical,

@@ -18,6 +18,9 @@ pub struct CreditBalance {
     /// Billing period end as a formatted local wall-clock string (no zone
     /// label), e.g. "Mar 31, 12:00".
     pub period_end_display: Option<String>,
+    /// Absolute period end (UTC) for compact reset-remaining chips
+    /// (`format_quota_chip`). Prefer this over re-parsing [`Self::period_end_display`].
+    pub period_end: Option<chrono::DateTime<chrono::Utc>>,
     /// Whether pay-as-you-go (on-demand) billing is enabled.
     pub pay_as_you_go: bool,
     /// On-demand spending cap in USD cents (e.g. 500 = $5.00).
@@ -44,6 +47,201 @@ impl CreditBalance {
             Some(t) if t.contains("MONTHLY") => "Monthly limit",
             _ => "Usage",
         }
+    }
+}
+
+/// Compact remaining-time for the info-line chip: `4d5h`, `5h12m`, `45m`, `<1m`.
+///
+/// Uses whole units only (no seconds) so the chip stays short on the border.
+pub fn format_reset_remaining(secs: u64) -> String {
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3_600;
+    let mins = (secs % 3_600) / 60;
+    if days > 0 {
+        if hours > 0 {
+            format!("{days}d{hours}h")
+        } else {
+            format!("{days}d")
+        }
+    } else if hours > 0 {
+        if mins > 0 {
+            format!("{hours}h{mins}m")
+        } else {
+            format!("{hours}h")
+        }
+    } else if mins > 0 {
+        format!("{mins}m")
+    } else {
+        "<1m".to_string()
+    }
+}
+
+/// Prompt info-line quota chip: `10% (reset: 4d5h)`, or `10%` without a period end.
+///
+/// Floors the percentage to match the `/usage` summary and SpendingLimiter
+/// truncation (`99.994%` → `99%`).
+pub fn format_quota_chip(balance: &CreditBalance) -> String {
+    format_quota_chip_at(balance, chrono::Utc::now())
+}
+
+/// Like [`format_quota_chip`], with an explicit `now` for tests.
+pub fn format_quota_chip_at(
+    balance: &CreditBalance,
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
+    let pct = balance.usage_pct.floor() as i64;
+    match balance.period_end {
+        Some(end) => {
+            let secs = (end - now).num_seconds().max(0) as u64;
+            format!("{pct}% (reset: {})", format_reset_remaining(secs))
+        }
+        None => format!("{pct}%"),
+    }
+}
+
+/// Prompt info-line quota chip text.
+///
+/// Hidden when the billing surface is off or this is a gateway chat session.
+/// While a fetch is in flight (Alt+Q), shows `"refreshing..."` so the user
+/// sees progress without scrollback spam. Otherwise the cached balance chip,
+/// or nothing if uncached.
+pub fn quota_chip_for_prompt(
+    billing_surface_visible: bool,
+    chat_kind: bool,
+    fetch_in_flight: bool,
+    balance: Option<&CreditBalance>,
+) -> Option<String> {
+    if !billing_surface_visible || chat_kind {
+        return None;
+    }
+    if fetch_in_flight {
+        return Some("refreshing...".to_string());
+    }
+    balance.map(format_quota_chip)
+}
+
+/// Context-window chip for the prompt info line: `"47K / 500K (9%)"` plus
+/// the usage-urgency gradient color.
+///
+/// Omitted for gateway chat sessions (remote owns context) and when used/total
+/// are not both known with a positive total. Lives here so agent render is a
+/// thin call site rather than inlining context-bar math into hot upstream files.
+pub fn context_chip_for_prompt(
+    chat_kind: bool,
+    used: Option<u64>,
+    total: Option<u64>,
+    theme: &Theme,
+) -> Option<(String, ratatui::style::Color)> {
+    if chat_kind {
+        return None;
+    }
+    let (used, total) = match (used, total) {
+        (Some(used), Some(total)) if total > 0 => (used, total),
+        _ => return None,
+    };
+    use crate::views::context_bar;
+    let pct = xai_token_estimation::usage_percentage(used, total);
+    let text = format!(
+        "{} / {} ({:.0}%)",
+        context_bar::fmt_tokens(used),
+        context_bar::fmt_tokens(total),
+        pct
+    );
+    let breakpoints = context_bar::default_breakpoints(theme);
+    let color = crate::theme::quantize(context_bar::blend_color(pct, &breakpoints));
+    Some((text, color))
+}
+
+/// Whether a session mode flag should appear on the prompt info line.
+///
+/// Always-approve is omitted: many sessions leave it on permanently (e.g.
+/// sandbox), so the chip is constant noise. Plan and auto still surface.
+/// Shared by full-TUI [`PromptBorderChips`] and minimal mode.
+pub fn keep_info_line_mode_flag(text: &str) -> bool {
+    text != "always-approve"
+}
+
+/// Owned context + quota chips for the prompt bottom-border info line.
+///
+/// Keeps fork-only assembly out of `agent_view/render.rs`: that call site
+/// only builds mode flags and weaves them through here.
+pub struct PromptBorderChips {
+    /// Context-window chip text + urgency color, when known.
+    pub context: Option<(String, ratatui::style::Color)>,
+    /// Billing quota chip text (or `"refreshing..."`), when shown.
+    pub quota: Option<String>,
+}
+
+impl PromptBorderChips {
+    /// Build chips from agent session state used by the prompt info line.
+    pub fn for_prompt(
+        chat_kind: bool,
+        context_used: Option<u64>,
+        context_total: Option<u64>,
+        theme: &Theme,
+        billing_surface_visible: bool,
+        billing_fetch_in_flight: bool,
+        balance: Option<&CreditBalance>,
+    ) -> Self {
+        Self {
+            context: context_chip_for_prompt(chat_kind, context_used, context_total, theme),
+            quota: quota_chip_for_prompt(
+                billing_surface_visible,
+                chat_kind,
+                billing_fetch_in_flight,
+                balance,
+            ),
+        }
+    }
+
+    /// Order: context · mode flags · quota (normal / editing-queued modes).
+    ///
+    /// Always-approve is dropped via [`keep_info_line_mode_flag`] so
+    /// `agent_view/render` can keep matching main (it still builds that flag).
+    pub fn with_mode_flags<'a>(
+        &'a self,
+        mut mode_flags: Vec<crate::views::prompt_widget::PromptFlag<'a>>,
+    ) -> Vec<crate::views::prompt_widget::PromptFlag<'a>> {
+        use crate::views::prompt_widget::PromptFlag;
+        mode_flags.retain(|f| keep_info_line_mode_flag(f.text));
+        let mut out = Vec::with_capacity(mode_flags.len() + 2);
+        if let Some((ref text, color)) = self.context {
+            out.push(PromptFlag {
+                text: text.as_str(),
+                color: Some(color),
+                bold: false,
+            });
+        }
+        out.append(&mut mode_flags);
+        if let Some(ref text) = self.quota {
+            out.push(PromptFlag {
+                text: text.as_str(),
+                color: None,
+                bold: false,
+            });
+        }
+        out
+    }
+
+    /// Context + quota only (bash / shell prompt override: drop mode flags).
+    pub fn chip_only_flags<'a>(&'a self) -> Vec<crate::views::prompt_widget::PromptFlag<'a>> {
+        use crate::views::prompt_widget::PromptFlag;
+        let mut out = Vec::with_capacity(2);
+        if let Some((ref text, color)) = self.context {
+            out.push(PromptFlag {
+                text: text.as_str(),
+                color: Some(color),
+                bold: false,
+            });
+        }
+        if let Some(ref text) = self.quota {
+            out.push(PromptFlag {
+                text: text.as_str(),
+                color: None,
+                bold: false,
+            });
+        }
+        out
     }
 }
 
@@ -289,6 +487,7 @@ mod tests {
             usage_pct: pct,
             effective_usage_pct: pct,
             period_end_display: None,
+            period_end: None,
             pay_as_you_go: false,
             on_demand_cap_cents: None,
             on_demand_used_cents: None,
@@ -803,6 +1002,118 @@ mod tests {
         let line = credit_bar_line(&balance, false, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "Credits used: 50%");
+    }
+
+    // ── format_quota_chip / format_reset_remaining ────────────────────
+
+    #[test]
+    fn format_reset_remaining_units() {
+        assert_eq!(format_reset_remaining(4 * 86_400 + 5 * 3_600), "4d5h");
+        assert_eq!(format_reset_remaining(4 * 86_400), "4d");
+        assert_eq!(format_reset_remaining(5 * 3_600 + 12 * 60), "5h12m");
+        assert_eq!(format_reset_remaining(3_600), "1h");
+        assert_eq!(format_reset_remaining(45 * 60), "45m");
+        assert_eq!(format_reset_remaining(30), "<1m");
+        assert_eq!(format_reset_remaining(0), "<1m");
+    }
+
+    #[test]
+    fn format_quota_chip_with_and_without_period_end() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let end = now + chrono::Duration::days(4) + chrono::Duration::hours(5);
+        let with_end = CreditBalance {
+            period_end: Some(end),
+            ..bal(10.4)
+        };
+        assert_eq!(
+            format_quota_chip_at(&with_end, now),
+            "10% (reset: 4d5h)"
+        );
+        assert_eq!(format_quota_chip_at(&bal(42.9), now), "42%");
+    }
+
+    #[test]
+    fn quota_chip_for_prompt_shows_refreshing_while_fetch_in_flight() {
+        let balance = bal(10.0);
+        assert_eq!(
+            quota_chip_for_prompt(true, false, true, Some(&balance)).as_deref(),
+            Some("refreshing..."),
+            "in-flight fetch must replace the cached chip"
+        );
+        assert_eq!(
+            quota_chip_for_prompt(true, false, true, None).as_deref(),
+            Some("refreshing..."),
+            "in-flight fetch shows even when no balance is cached yet"
+        );
+        // Idle + cached balance → normal chip (not "refreshing...").
+        let idle = quota_chip_for_prompt(true, false, false, Some(&balance));
+        assert!(
+            idle.as_deref().is_some_and(|s| s.starts_with("10%")),
+            "idle chip should be the cached balance, got {idle:?}"
+        );
+        assert_eq!(
+            quota_chip_for_prompt(true, false, false, None),
+            None,
+            "idle with no cache shows nothing"
+        );
+        assert_eq!(
+            quota_chip_for_prompt(false, false, true, Some(&balance)),
+            None,
+            "hidden billing surface never shows the chip"
+        );
+        assert_eq!(
+            quota_chip_for_prompt(true, true, true, Some(&balance)),
+            None,
+            "gateway chat suppresses the quota chip"
+        );
+    }
+
+    #[test]
+    fn prompt_border_chips_order_context_mode_quota() {
+        use crate::views::prompt_widget::PromptFlag;
+        let theme = Theme::default();
+        let balance = bal(10.0);
+        let chips = PromptBorderChips::for_prompt(
+            false,
+            Some(47_000),
+            Some(500_000),
+            &theme,
+            true,
+            false,
+            Some(&balance),
+        );
+        assert!(chips.context.is_some());
+        assert!(chips.quota.as_deref().is_some_and(|s| s.starts_with("10%")));
+
+        let mode = vec![
+            PromptFlag {
+                text: "always-approve",
+                color: None,
+                bold: false,
+            },
+            PromptFlag {
+                text: "plan",
+                color: None,
+                bold: false,
+            },
+        ];
+        let woven = chips.with_mode_flags(mode);
+        assert_eq!(woven.len(), 3);
+        assert!(woven[0].text.contains('/'), "context first: {}", woven[0].text);
+        assert_eq!(woven[1].text, "plan");
+        assert!(woven[2].text.starts_with("10%"), "quota last: {}", woven[2].text);
+        assert!(
+            woven.iter().all(|f| f.text != "always-approve"),
+            "always-approve must be filtered; flags: {:?}",
+            woven.iter().map(|f| f.text).collect::<Vec<_>>()
+        );
+
+        let only = chips.chip_only_flags();
+        assert_eq!(only.len(), 2);
+        assert!(only[0].text.contains('/'));
+        assert!(only[1].text.starts_with("10%"));
     }
 
     #[test]

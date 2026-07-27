@@ -283,6 +283,8 @@ pub(crate) fn test_app() -> AppView {
         leader_mode: true,
         credit_balance: None,
         auto_topup: None,
+        billing_fetched_at: None,
+        billing_fetch_in_flight: false,
         billing_poll_wanted: false,
         leader_roster: Vec::new(),
         dashboard_local_sessions: Vec::new(),

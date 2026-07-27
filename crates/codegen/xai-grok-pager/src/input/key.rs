@@ -45,12 +45,31 @@ impl KeyShortcut {
         Self::new(code, KeyModifiers::CONTROL)
     }
 
-    /// Normalize Shift+lowercase ↔ uppercase.
+    /// Normalize letter case so matching is stable across terminal encodings.
+    ///
+    /// Bare letters keep the historical rule: Shift+lowercase ↔ uppercase
+    /// (canonical form is uppercase + `SHIFT`), so both `Char('G') + NONE` and
+    /// `Char('g') + SHIFT` match `key!('G')`.
+    ///
+    /// Chords with Ctrl/Alt/Super fold the letter to lowercase and only honor
+    /// an **explicit** `SHIFT` bit. Terminals often deliver Alt+Q as
+    /// `Char('Q') + ALT` (uppercase, no SHIFT); inventing SHIFT from case would
+    /// make that miss `key!('q', ALT)`.
     fn normalize_case(mut self) -> Self {
         let c = match self.code {
             KeyCode::Char(c) => c,
             _ => return self,
         };
+        if !c.is_ascii_alphabetic() {
+            return self;
+        }
+        let has_chord_mods = self
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
+        if has_chord_mods {
+            self.code = KeyCode::Char(c.to_ascii_lowercase());
+            return self;
+        }
         if c.is_ascii_uppercase() {
             self.modifiers.insert(KeyModifiers::SHIFT);
         } else if self.modifiers.contains(KeyModifiers::SHIFT) {
@@ -61,7 +80,8 @@ impl KeyShortcut {
 
     /// Check if a crossterm KeyEvent matches this shortcut.
     /// Normalizes the event's case before comparing, so both
-    /// `Char('G') + NONE` and `Char('g') + SHIFT` match `key!('G')`.
+    /// `Char('G') + NONE` and `Char('g') + SHIFT` match `key!('G')`, and both
+    /// `Char('q') + ALT` and `Char('Q') + ALT` match `key!('q', ALT)`.
     pub fn matches(&self, event: &KeyEvent) -> bool {
         if event.kind == KeyEventKind::Release {
             return false;
@@ -562,6 +582,51 @@ mod tests {
 
         let wrong_mod = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE);
         assert!(!ctrl_c.matches(&wrong_mod));
+    }
+
+    /// Terminals disagree on letter case for Alt/Ctrl chords: some send
+    /// `Char('q')+ALT`, others `Char('Q')+ALT` (no SHIFT). Both must match.
+    #[test]
+    fn alt_letter_matches_regardless_of_case() {
+        let alt_q = key!('q', ALT);
+        assert!(alt_q.matches(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT)));
+        assert!(alt_q.matches(&KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::ALT)));
+        // Explicit Shift is a different chord.
+        assert!(!alt_q.matches(&KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::ALT | KeyModifiers::SHIFT
+        )));
+        assert!(!alt_q.matches(&KeyEvent::new(
+            KeyCode::Char('Q'),
+            KeyModifiers::ALT | KeyModifiers::SHIFT
+        )));
+    }
+
+    #[test]
+    fn ctrl_shift_letter_still_requires_shift() {
+        let redo = key!('z', CONTROL | SHIFT);
+        assert!(redo.matches(&KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        )));
+        assert!(redo.matches(&KeyEvent::new(
+            KeyCode::Char('Z'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        )));
+        // Uppercase alone must not invent Ctrl+Shift (Caps Lock / terminal quirk).
+        assert!(!redo.matches(&KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::CONTROL)));
+        assert!(!redo.matches(&KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn bare_shift_letter_still_normalizes() {
+        let shift_g = key!('G');
+        assert!(shift_g.matches(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)));
+        assert!(shift_g.matches(&KeyEvent::new(
+            KeyCode::Char('g'),
+            KeyModifiers::SHIFT
+        )));
+        assert!(!shift_g.matches(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)));
     }
 
     #[test]
