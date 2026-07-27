@@ -575,21 +575,19 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             silent,
             nonce,
         } => {
-            if let Some(agent) = app.agents.get_mut(&agent_id) {
-                if let Some(state) = usage_modal_state_mut(agent)
-                    && state.fetch_nonce == nonce
-                {
-                    state.billing_loading = false;
-                    state.billing_error = Some(error.clone());
-                }
-                if !silent {
-                    agent.scrollback.push_block(RenderBlock::System(
-                        crate::scrollback::blocks::SystemMessageBlock::new(format!(
-                            "Billing error: {error}"
-                        )),
-                    ));
-                }
+            // Do not advance the success-cache timestamp on errors — allow
+            // Alt+Q to retry immediately. Still clear the in-flight flag.
+            super::billing::mark_billing_fetch_finished(app, false);
+            if let Some(agent) = app.agents.get_mut(&agent_id)
+                && !silent
+            {
+                agent.scrollback.push_block(RenderBlock::System(
+                    crate::scrollback::blocks::SystemMessageBlock::new(format!(
+                        "Billing error: {error}"
+                    )),
+                ));
             }
+            super::billing::apply_billing_reply_to_modals(app, nonce, Some(error), false, None);
             vec![]
         }
         TaskResult::AppBillingFetched {
@@ -597,23 +595,15 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             autotopup,
             nonce,
         } => {
+            super::billing::mark_billing_fetch_finished(app, balance.is_some());
             app.credit_balance = balance;
             apply_auto_topup(&mut app.auto_topup, &autotopup);
-            if let Some(state) = app.dashboard.as_mut().and_then(|d| d.usage_modal.as_mut())
-                && state.fetch_nonce == nonce
-            {
-                state.billing_loading = false;
-                state.billing_error = None;
-            }
+            super::billing::apply_billing_reply_to_modals(app, nonce, None, false, None);
             vec![]
         }
         TaskResult::AppBillingError { error, nonce } => {
-            if let Some(state) = app.dashboard.as_mut().and_then(|d| d.usage_modal.as_mut())
-                && state.fetch_nonce == nonce
-            {
-                state.billing_loading = false;
-                state.billing_error = Some(error);
-            }
+            super::billing::mark_billing_fetch_finished(app, false);
+            super::billing::apply_billing_reply_to_modals(app, nonce, Some(error), false, None);
             vec![]
         }
         TaskResult::GateRefreshed { settings } => handle_gate_refreshed(app, settings),
