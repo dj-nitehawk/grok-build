@@ -1440,6 +1440,11 @@ pub struct AgentView {
     pub(crate) loading_placeholder_id: Option<EntryId>,
     /// Entry ID of the in-flight manual `/recap` loading block (rendered with the animated "running" sidebar). Set when `/recap` is dispatched and taken by the `SessionRecap` handler, which fills the block with the summary and stops the animation. `None` when no manual recap is pending (auto recaps never show a loading block).
     pub(crate) pending_recap_entry: Option<EntryId>,
+    /// Entry ID of the in-flight `/handoff` loading block (animated "running"
+    /// sidebar while the shell generates the task-scoped note). Set on
+    /// dispatch; finished or removed on ready/fail and reload cleanup.
+    /// `None` when no handoff is pending.
+    pub(crate) pending_handoff_entry: Option<EntryId>,
     /// The manually-chosen session title (`/rename` or the dashboard rename flow), as distinct from the auto-generated
     /// `generated_session_title` below. Set optimistically at dispatch, persisted by the shell as `Summary.title_is_manual`, and restored from disk on resume (`TaskResult::SessionMetaFromDisk`). Drives the prompt-border inline title and wins precedence for the dashboard modal label and the OSC terminal title. The on-disk write is best-effort (failure surfaces a system block through the existing
     /// `RenameSessionFailed` arm).
