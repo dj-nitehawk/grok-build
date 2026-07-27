@@ -539,10 +539,20 @@ fn credit_balance_prefers_current_period_end_over_billing_period_end() {
         billing_period_end: Some("2026-07-01T20:00:00Z".into()),
         ..empty_billing_config()
     };
+    let bal = credit_balance_from_config(c);
     assert_eq!(
-            credit_balance_from_config(c).period_end_display.as_deref(),
-            Some(expected_period_end_display(end).as_str())
-        );
+        bal.period_end_display.as_deref(),
+        Some(expected_period_end_display(end).as_str())
+    );
+    assert_eq!(
+        bal.period_end.map(|dt| dt.to_rfc3339()),
+        Some(
+            chrono::DateTime::parse_from_rfc3339(end)
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339()
+        )
+    );
 }
 #[test]
 fn credit_balance_period_end_uses_local_timezone() {

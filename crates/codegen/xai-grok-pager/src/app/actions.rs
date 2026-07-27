@@ -650,6 +650,8 @@ pub enum Action {
     ShowUsage,
     /// `/usage manage`: open consumer billing (a no-op when billing is hidden).
     ManageBilling,
+    /// Alt+Q — refresh Grok usage quota for the prompt info line (1-min cache).
+    RefreshUsageQuota,
     /// Commit a read-only list of the queued prompts as a system block (`/queue`).
     /// This is what minimal mode uses in place of the `QueuePane`.
     ShowQueue,
