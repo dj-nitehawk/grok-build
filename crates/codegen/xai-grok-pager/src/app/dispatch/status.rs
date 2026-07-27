@@ -52,6 +52,10 @@ pub(super) fn open_usage_info_modal(
     let ActiveView::Agent(id) = app.active_view else {
         return vec![];
     };
+    // Snapshot before borrowing the agent. `/usage` shares Alt+Q's single
+    // in-flight request and 60s cache so a late reply cannot overwrite a newer one.
+    let fetch_allowed = super::billing::billing_fetch_allowed(app);
+    let already_in_flight = app.billing_fetch_in_flight;
     let usage_visible = app.usage_visible;
     let redirect_url = app.usage_billing_redirect_url.clone();
     let tier = app.subscription_tier.clone();
@@ -99,9 +103,13 @@ pub(super) fn open_usage_info_modal(
             nonce,
         });
     }
-    // Silently refresh the cached billing mirrors the modal renders from
-    if billing_reachable {
+    // Share the Alt+Q cache: start a fetch only on a miss, or wait on the one
+    // already in flight. A warm cache renders from the mirrors with no spinner.
+    let start_billing = billing_reachable && fetch_allowed;
+    if billing_reachable && (start_billing || already_in_flight) {
         state.billing_loading = true;
+    }
+    if start_billing {
         effects.push(Effect::FetchBilling {
             agent_id: id,
             silent: true,
@@ -111,6 +119,9 @@ pub(super) fn open_usage_info_modal(
     agent.active_modal = Some(ActiveModal::UsageInfo {
         state: Box::new(state),
     });
+    if start_billing {
+        super::billing::mark_billing_fetch_started(app);
+    }
     effects
 }
 
@@ -123,6 +134,8 @@ fn open_dashboard_usage_modal(
     use crate::views::usage_modal::{UsageInfoContext, UsageInfoModalState};
 
     let chat_kind = app.chat_mode;
+    let fetch_allowed = super::billing::billing_fetch_allowed(app);
+    let already_in_flight = app.billing_fetch_in_flight;
     let billing_reachable =
         app.usage_visible && !chat_kind && app.usage_billing_redirect_url.is_none();
     let ctx = UsageInfoContext {
@@ -141,13 +154,19 @@ fn open_dashboard_usage_modal(
     }
     let mut state = UsageInfoModalState::new(tab, ctx);
     let mut effects = Vec::new();
-    if billing_reachable {
+    let start_billing = billing_reachable && fetch_allowed;
+    if start_billing {
         let nonce = next_usage_fetch_nonce();
         state.fetch_nonce = nonce;
         state.billing_loading = true;
         effects.push(Effect::FetchAppBilling { nonce });
+    } else if billing_reachable && already_in_flight {
+        state.billing_loading = true;
     }
     dashboard.usage_modal = Some(Box::new(state));
+    if start_billing {
+        super::billing::mark_billing_fetch_started(app);
+    }
     effects
 }
 
@@ -431,12 +450,45 @@ pub(super) fn append_consumer_billing_surface(app: &mut AppView, agent_id: Agent
     if !app.agents.contains_key(&agent_id) {
         return vec![];
     }
-    // Non-silent: the effect also pulls the auto top-up rule so the summary renders usage, prepaid credits, and auto top-up together
-    vec![Effect::FetchBilling {
-        agent_id,
-        silent: false,
-        nonce: Default::default(),
-    }]
+    // Within the 1-minute cache, render the cached summary instead of
+    // hitting the endpoint again.
+    if !super::billing::billing_fetch_allowed(app) {
+        if let Some(agent) = app.agents.get_mut(&agent_id)
+            && !agent.chat_kind
+        {
+            let msg = match (app.credit_balance.as_ref(), app.auto_topup.as_ref()) {
+                (Some(bal), topup) => crate::views::credit_bar::format_usage_summary(bal, topup),
+                (None, _) => "No billing data available.".to_string(),
+            };
+            agent.scrollback.push_block(RenderBlock::System(
+                crate::scrollback::blocks::SystemMessageBlock::new(msg),
+            ));
+        }
+        return vec![];
+    }
+    // Non-silent: the effect also pulls the auto top-up rule so the summary
+    // renders usage, prepaid credits, and auto top-up together.
+    super::billing::fetch_billing_if_allowed(app, agent_id, false)
+}
+
+/// Alt+Q — refresh Grok usage quota for the prompt info line.
+///
+/// Hits the billing endpoint only when the 1-minute cache has expired
+/// (and no fetch is already in flight). While the fetch runs the info line
+/// shows `"refreshing..."`; on completion it shows the cached balance.
+/// Scrollback stays silent (`silent: true`).
+pub(super) fn dispatch_refresh_usage_quota(app: &mut AppView) -> Vec<Effect> {
+    if !app.usage_visible {
+        return vec![];
+    }
+    let crate::app::app_view::ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    if !app.agents.contains_key(&id) {
+        return vec![];
+    }
+    // Silent: update the cache / info line only — no scrollback spam.
+    super::billing::fetch_billing_if_allowed(app, id, true)
 }
 
 /// `/usage manage`: open consumer billing. No-op when the surface is hidden.
