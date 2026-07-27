@@ -795,6 +795,14 @@ pub enum SessionCommand {
         question: String,
         respond_to: oneshot::Sender<Result<String, SideQuestionError>>,
     },
+    /// Generate a task-scoped handoff note without mutating conversation.
+    ///
+    /// Snapshots history, makes one tool-free model call steered by `task`,
+    /// and returns only the note text (caller seeds a new empty session).
+    Handoff {
+        task: String,
+        respond_to: oneshot::Sender<Result<String, String>>,
+    },
     /// Generate a session recap (a short "where was I" summary) and broadcast
     /// it to clients via `SessionUpdate::SessionRecap`.
     ///
