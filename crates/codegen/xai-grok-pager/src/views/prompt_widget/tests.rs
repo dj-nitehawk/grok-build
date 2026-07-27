@@ -4590,6 +4590,85 @@
         assert_eq!(buf_text_at(&buf, 1, 10, 0), "\u{2500}".repeat(9));
     }
 
+    // ── Bottom info line (centered model · context · flags) ─────────
+
+    fn draw_info_line(width: u16, info: &PromptInfo<'_>) -> Buffer {
+        let pw = PromptWidget::new();
+        let area = Rect::new(0, 0, width, 1);
+        let mut buf = Buffer::empty(area);
+        let theme = Theme::current();
+        pw.render_info_line(&mut buf, area, info, theme.bg_base, &theme, true);
+        buf
+    }
+
+    /// Find the first non-space / non-border-fill column on row 0.
+    fn first_content_col(buf: &Buffer) -> Option<u16> {
+        let w = buf.area().width;
+        (0..w).find(|&x| {
+            let s = buf.cell((x, 0)).map(|c| c.symbol()).unwrap_or(" ");
+            s != " " && s != "\u{2500}"
+        })
+    }
+
+    #[test]
+    fn info_line_centers_model_and_context_usage() {
+        let width = 60u16;
+        // Context chip is a PromptFlag so PromptInfo stays field-compatible with main.
+        let flags = [PromptFlag {
+            text: "47K / 500K (9%)",
+            color: None,
+            bold: false,
+        }];
+        let info = PromptInfo {
+            model_name: "grok-4",
+            flags: &flags,
+            multiline: false,
+            usage_warning: None,
+            usage_warning_critical: false,
+        };
+        let buf = draw_info_line(width, &info);
+        let row: String = (0..width)
+            .map(|x| buf.cell((x, 0)).map(|c| c.symbol()).unwrap_or(" ").to_string())
+            .collect();
+        assert!(
+            row.contains("grok-4 · 47K / 500K (9%)"),
+            "expected model · context on info line, got: {row:?}"
+        );
+        // Label with pads: " grok-4 · 47K / 500K (9%) " = 26 cols, centered in 60.
+        let expected_start = (width - 26) / 2;
+        assert_eq!(
+            first_content_col(&buf),
+            Some(expected_start + 1), // +1 skips the leading pad space
+            "info line must be centered; row={row:?}"
+        );
+    }
+
+    #[test]
+    fn info_line_includes_multiline_in_centered_group() {
+        let width = 80u16;
+        let info = PromptInfo {
+            model_name: "m",
+            flags: &[],
+            multiline: true,
+            usage_warning: None,
+            usage_warning_critical: false,
+        };
+        let buf = draw_info_line(width, &info);
+        let row: String = (0..width)
+            .map(|x| buf.cell((x, 0)).map(|c| c.symbol()).unwrap_or(" ").to_string())
+            .collect();
+        assert!(
+            row.contains("m · multiline"),
+            "multiline must join the centered group, not float right; got: {row:?}"
+        );
+        // Must not be right-aligned: content should start well before the right edge.
+        let start = first_content_col(&buf).expect("content");
+        assert!(
+            start < width / 2,
+            "centered multiline group should start in left half; start={start} row={row:?}"
+        );
+    }
+
     // ── PromptBg::Panel chip remap (inline surfaces) ────────────────
 
     fn any_cell_with_bg(buf: &Buffer, bg: ratatui::style::Color) -> bool {

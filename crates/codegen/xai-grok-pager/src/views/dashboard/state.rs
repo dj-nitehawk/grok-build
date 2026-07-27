@@ -4629,6 +4629,7 @@ fn dashboard_action_for_id(
         | ActionId::ModelPicker
         | ActionId::ShortcutsHelp
         | ActionId::OpenSettings
+        | ActionId::RefreshUsageQuota
         | ActionId::OpenDashboard
         | ActionId::EnableVoiceMode
         | ActionId::VoiceToggle
