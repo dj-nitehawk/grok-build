@@ -298,6 +298,99 @@ pub(super) fn apply_auto_topup(
     }
 }
 
+/// Minimum interval between billing endpoint hits (Alt+Q and other paths).
+pub(crate) const BILLING_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether a fresh billing fetch is allowed right now (cache miss + not in flight).
+pub(crate) fn billing_fetch_allowed(app: &AppView) -> bool {
+    if app.billing_fetch_in_flight {
+        return false;
+    }
+    match app.billing_fetched_at {
+        None => true,
+        Some(at) => at.elapsed() >= BILLING_CACHE_TTL,
+    }
+}
+
+/// Mark that a billing network fetch is about to start.
+pub(crate) fn mark_billing_fetch_started(app: &mut AppView) {
+    app.billing_fetch_in_flight = true;
+}
+
+/// Record a completed billing fetch (success or terminal error) for the cache.
+pub(crate) fn mark_billing_fetch_finished(app: &mut AppView, success: bool) {
+    app.billing_fetch_in_flight = false;
+    if success {
+        app.billing_fetched_at = Some(std::time::Instant::now());
+    }
+}
+
+/// Whether a billing reply should update this usage modal's billing flags.
+///
+/// Any modal already showing the billing spinner is waiting on the single
+/// in-flight request, even when its session nonce differs (it joined a fetch
+/// that `/usage` or Alt+Q had already started). A non-zero nonce also settles
+/// the modal that started that request. Nonce `0` does not touch an idle modal,
+/// including a dashboard modal left at `fetch_nonce == 0` because billing was skipped.
+pub(super) fn billing_reply_settles_modal(
+    fetch_nonce: u64,
+    billing_loading: bool,
+    nonce: u64,
+) -> bool {
+    billing_loading || (nonce != 0 && fetch_nonce == nonce)
+}
+
+/// Apply one billing reply to every open usage modal waiting on it.
+///
+/// `set_tier` writes `tier` (including `None`) on success. Errors leave the
+/// tier alone and pass the message in `error`.
+pub(super) fn apply_billing_reply_to_modals(
+    app: &mut AppView,
+    nonce: u64,
+    error: Option<String>,
+    set_tier: bool,
+    tier: Option<String>,
+) {
+    let apply = |state: &mut crate::views::usage_modal::UsageInfoModalState| {
+        if !billing_reply_settles_modal(state.fetch_nonce, state.billing_loading, nonce) {
+            return;
+        }
+        state.billing_loading = false;
+        state.billing_error = error.clone();
+        if set_tier {
+            state.ctx.subscription_tier = tier.clone();
+        }
+    };
+    for agent in app.agents.values_mut() {
+        if let Some(state) = super::status::usage_modal_state_mut(agent) {
+            apply(state);
+        }
+    }
+    if let Some(state) = app.dashboard.as_mut().and_then(|d| d.usage_modal.as_mut()) {
+        apply(state);
+    }
+}
+
+/// Emit `FetchBilling` only when the 1-minute cache allows it.
+///
+/// Returns an empty vec when the cache is still warm or a fetch is already
+/// in flight — the info line keeps using the last cached balance.
+pub(crate) fn fetch_billing_if_allowed(
+    app: &mut AppView,
+    agent_id: AgentId,
+    silent: bool,
+) -> Vec<Effect> {
+    if !billing_fetch_allowed(app) {
+        return vec![];
+    }
+    mark_billing_fetch_started(app);
+    vec![Effect::FetchBilling {
+        agent_id,
+        silent,
+        nonce: 0,
+    }]
+}
+
 // TaskResult handlers.
 
 pub(super) fn handle_billing_fetched(
@@ -309,14 +402,14 @@ pub(super) fn handle_billing_fetched(
     autotopup: crate::views::credit_bar::AutoTopupFetch,
     nonce: u64,
 ) -> Vec<Effect> {
-    // Parse/transport failures route to `BillingError`, so a `None` balance here means the response carried no billing config
-    // Clear the cached balance and polling so the status bar agrees with the "No billing data available." message rather than showing a stale value
+    // Parse/transport failures route to `BillingError`, so a `None` balance here means the response carried no billing config.
+    // Clear the cached balance so the status bar agrees with the "No billing data available." message rather than showing a stale value.
+    mark_billing_fetch_finished(app, true);
     app.credit_balance = balance.clone();
     apply_auto_topup(&mut app.auto_topup, &autotopup);
-    app.billing_poll_wanted = balance
-        .as_ref()
-        .map(|b| b.usage_pct >= 99.0)
-        .unwrap_or(false);
+    // Info-line quota is manual (Alt+Q) with a 1-minute cache — never
+    // re-enable the legacy high-usage 30s poll.
+    app.billing_poll_wanted = false;
     if let Some(tier) = subscription_tier {
         app.subscription_tier = Some(tier);
     }
@@ -328,15 +421,6 @@ pub(super) fn handle_billing_fetched(
         let mut topup = agent.auto_topup.clone();
         apply_auto_topup(&mut topup, &autotopup);
         agent.apply_credit_balance(balance.clone(), topup);
-        // The open usage modal renders from the mirrors updated above
-        // Only its own fetch generation may settle the loading/error flags (background refreshes carry nonce 0)
-        if let Some(state) = super::status::usage_modal_state_mut(agent)
-            && state.fetch_nonce == nonce
-        {
-            state.billing_loading = false;
-            state.billing_error = None;
-            state.ctx.subscription_tier = tier_now;
-        }
         if !silent && !agent.chat_kind {
             let msg = match &balance {
                 Some(bal) => {
@@ -349,6 +433,9 @@ pub(super) fn handle_billing_fetched(
             ));
         }
     }
+    // Modals render from the mirrors updated above. A spinner means this
+    // in-flight fetch was joined, so settle it even when the session nonce differs.
+    apply_billing_reply_to_modals(app, nonce, None, true, tier_now);
     vec![]
 }
 
@@ -495,12 +582,9 @@ pub(super) fn handle_credit_limit_recheck_complete(
         agent.credit_limit_stashed_prompt = None;
     }
 
-    let mut drain = maybe_drain_queue(agent, &mut app.pending_image_notices);
-    drain.effects.push(Effect::FetchBilling {
-        agent_id,
-        silent: true,
-        nonce: Default::default(),
-    });
+    let drain = maybe_drain_queue(agent, &mut app.pending_image_notices);
+    // Usage quota is refreshed only via Alt+Q (1-minute cache). Do not
+    // auto-fetch after a credit-limit recheck.
     note_peek_page_flip(app, agent_id, drain.page_flip_entry);
     drain.effects
 }
