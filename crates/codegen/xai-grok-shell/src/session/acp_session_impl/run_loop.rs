@@ -1861,6 +1861,13 @@ pub(super) async fn run_session(
                                 let _ = respond_to.send(result);
                             });
                         }
+                        SessionCommand::Handoff { task, respond_to } => {
+                            let s = session.clone();
+                            tokio::task::spawn_local(async move {
+                                let result = s.handle_handoff(&task).await;
+                                let _ = respond_to.send(result);
+                            });
+                        }
                         SessionCommand::Recap { auto } => {
                             let s = session.clone();
                             tokio::task::spawn_local(async move {
