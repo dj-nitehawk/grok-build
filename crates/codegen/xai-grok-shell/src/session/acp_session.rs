@@ -218,6 +218,8 @@ pub use stop_gate::MAX_STOP_HOOK_CONTINUATIONS_PER_TURN;
 mod context_snapshot;
 #[path = "acp_session_impl/recap.rs"]
 mod recap;
+#[path = "acp_session_impl/handoff.rs"]
+mod handoff;
 #[path = "acp_session_impl/rewind.rs"]
 mod rewind;
 #[path = "acp_session_impl/run_loop.rs"]
