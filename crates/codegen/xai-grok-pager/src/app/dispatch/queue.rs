@@ -1461,13 +1461,13 @@ mod tests {
             kind: crate::app::agent::QueueEntryKind::Prompt,
         };
 
-        // Turn ends: must not drain "second" (user is editing it), only FetchBilling
+        // Turn ends → should NOT drain "second" (user is editing it). Billing
+        // is no longer auto-fetched after turns (Alt+Q only).
         let effects = dispatch(end_turn(), &mut app);
-        assert_eq!(effects.len(), 1);
-        assert!(matches!(
-            effects.first(),
-            Some(Effect::FetchBilling { silent: true, .. })
-        ));
+        assert!(
+            effects.is_empty(),
+            "drain blocked and no auto billing fetch, got {effects:?}"
+        );
         assert!(test_agent(&app, id).session.state.is_idle());
         assert_eq!(test_agent(&app, id).session.queue_len(), 2);
         assert_eq!(
@@ -1506,16 +1506,13 @@ mod tests {
             kind: crate::app::agent::QueueEntryKind::Prompt,
         };
 
-        // Turn ends: drains "second" (front, not being edited) plus FetchBilling
+        // Turn ends → should drain "second" (front, not being edited).
+        // No auto billing fetch after turns.
         let effects = dispatch(end_turn(), &mut app);
-        assert_eq!(effects.len(), 2);
+        assert_eq!(effects.len(), 1);
         assert!(
             matches!(effects.first(), Some(Effect::SendPrompt { text, .. }) if text == "second")
         );
-        assert!(matches!(
-            effects.get(1),
-            Some(Effect::FetchBilling { silent: true, .. })
-        ));
         assert_eq!(test_agent(&app, id).session.queue_len(), 1);
         assert_eq!(
             test_agent(&app, id)
@@ -3339,15 +3336,11 @@ mod tests {
             kind: crate::app::agent::QueueEntryKind::Prompt,
         };
 
-        // End turn for p2: must not drain p3 (being edited), only FetchBilling
+        // End turn for p2 → should NOT drain p3 (being edited). No auto billing.
         let effects = dispatch(end_turn(), &mut app);
-        assert_eq!(effects.len(), 1);
         assert!(
-            matches!(
-                effects.first(),
-                Some(Effect::FetchBilling { silent: true, .. })
-            ),
-            "drain should be blocked, only billing refresh"
+            effects.is_empty(),
+            "drain blocked and no auto billing fetch, got {effects:?}"
         );
         assert_eq!(test_agent(&app, id).session.queue_len(), 2); // p3, p4
 
