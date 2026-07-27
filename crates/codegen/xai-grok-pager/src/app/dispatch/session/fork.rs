@@ -252,7 +252,8 @@ pub(in crate::app::dispatch) fn dispatch_fork_resolved(
 }
 /// Build the placeholder [`AgentView`] for a fork.
 /// Centralises the `AgentSession`/spinner construction shared by the worktree and no-worktree branches so the parallel struct literal does not drift.
-fn build_fork_placeholder(
+/// `pub(super)` so `/handoff` can reuse the same placeholder construction.
+pub(super) fn build_fork_placeholder(
     app: &AppView,
     new_id: AgentId,
     parent_id: AgentId,

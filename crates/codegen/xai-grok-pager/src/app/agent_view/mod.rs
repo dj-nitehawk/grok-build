@@ -1599,6 +1599,11 @@ pub struct AgentView {
     /// summary and stops the animation. `None` when no manual recap is
     /// pending (auto recaps never show a loading block).
     pub(crate) pending_recap_entry: Option<EntryId>,
+    /// Entry ID of the in-flight `/handoff` loading block (animated "running"
+    /// sidebar while the shell generates the task-scoped note). Set on
+    /// dispatch; finished or removed on ready/fail and reload cleanup.
+    /// `None` when no handoff is pending.
+    pub(crate) pending_handoff_entry: Option<EntryId>,
     /// The manually-chosen session title (`/rename` or the dashboard
     /// rename flow), as distinct from the auto-generated
     /// `generated_session_title` below. Set optimistically at dispatch,

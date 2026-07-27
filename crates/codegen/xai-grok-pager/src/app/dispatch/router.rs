@@ -58,6 +58,7 @@ use super::session::fork::{
     apply_persist_worktree_mode, dispatch_fork, dispatch_fork_resolved,
     dispatch_startup_fork_session,
 };
+use super::session::handoff::dispatch_handoff;
 use super::session::lifecycle::{
     clear_startup_actions, dispatch_accept_consent, dispatch_agent_type_mismatch_answered,
     dispatch_delete_current_session_answered, dispatch_exit_session, dispatch_new_session,
@@ -1265,6 +1266,7 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
             }]
         }
         Action::Fork(args) => dispatch_fork(app, args),
+        Action::Handoff { task } => dispatch_handoff(app, task),
         Action::ForkAnswered {
             worktree,
             directive,
