@@ -1279,12 +1279,11 @@ fn turn_end_drains_next_queued_prompt() {
         &mut app,
     );
 
-    // No re-send (the prompt was already sent at enqueue time): only the billing refresh effect
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    // No re-send (the prompt was already sent at enqueue time); no auto billing.
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_turn_running());
     // current_prompt_id was handed off to the second prompt for correlation.
     assert_eq!(
@@ -1361,12 +1360,11 @@ fn turn_end_with_empty_queue_stays_idle() {
         &mut app,
     );
 
-    // Silent billing refresh after turn completion.
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    // No auto billing fetch after turn completion.
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_idle());
     // Session event "Worked for" added.
     assert_eq!(app.agents[&id].scrollback.len(), 1);
@@ -1395,31 +1393,24 @@ fn multiple_queued_prompts_drain_one_per_turn() {
         })
     };
 
-    // Turn end: drain "b" and FetchBilling
-    let effects = dispatch(end_turn(), &mut app);
-    assert!(matches!(&effects[0], Effect::SendPrompt { text, .. } if text == "b"));
-    assert!(matches!(
-        &effects[1],
-        Effect::FetchBilling { silent: true, .. }
-    ));
-    assert_eq!(app.agents[&id].session.queue_len(), 1);
-
-    // Turn end: drain "c" and FetchBilling
-    let effects = dispatch(end_turn(), &mut app);
-    assert!(matches!(&effects[0], Effect::SendPrompt { text, .. } if text == "c"));
-    assert!(matches!(
-        &effects[1],
-        Effect::FetchBilling { silent: true, .. }
-    ));
-    assert_eq!(app.agents[&id].session.queue_len(), 0);
-
-    // Turn end: FetchBilling only
+    // Turn end → drain "b" (no auto billing).
     let effects = dispatch(end_turn(), &mut app);
     assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    assert!(matches!(&effects[0], Effect::SendPrompt { text, .. } if text == "b"));
+    assert_eq!(app.agents[&id].session.queue_len(), 1);
+
+    // Turn end → drain "c".
+    let effects = dispatch(end_turn(), &mut app);
+    assert_eq!(effects.len(), 1);
+    assert!(matches!(&effects[0], Effect::SendPrompt { text, .. } if text == "c"));
+    assert_eq!(app.agents[&id].session.queue_len(), 0);
+
+    // Turn end → idle, no auto billing.
+    let effects = dispatch(end_turn(), &mut app);
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_idle());
 }
 
@@ -1441,12 +1432,11 @@ fn prompt_response_resets_turn_state() {
         }),
         &mut app,
     );
-    // Silent billing refresh after turn completion.
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    // No auto billing fetch after turn completion.
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_idle());
     assert!(app.agents[&id].turn_started_at.is_none());
     // mark_turn_finished must stamp the activity anchor used by the dashboard relative-time label
@@ -1459,8 +1449,9 @@ fn prompt_response_resets_turn_state() {
     assert_eq!(app.agents[&id].scrollback.len(), 1);
 }
 
-/// Turn end with prompt suggestions enabled fires the `x.ai/suggestPrompt` fetch (before the billing refresh).
+/// Turn end with prompt suggestions enabled fires the `x.ai/suggestPrompt` fetch.
 /// The loaded suggestion routes back into the agent's controller by id and generation.
+/// Billing is no longer auto-fetched after turns.
 #[test]
 fn turn_end_fetches_prompt_suggestion_when_enabled() {
     crate::appearance::cache::set_prompt_suggestions(true);
@@ -1479,7 +1470,7 @@ fn turn_end_fetches_prompt_suggestion_when_enabled() {
         &mut app,
     );
 
-    assert_eq!(effects.len(), 2, "suggestion fetch + billing: {effects:?}");
+    assert_eq!(effects.len(), 1, "suggestion fetch only: {effects:?}");
     let Effect::FetchPromptSuggestion {
         agent_id,
         generation,
@@ -1487,7 +1478,7 @@ fn turn_end_fetches_prompt_suggestion_when_enabled() {
         session_id,
     } = &effects[0]
     else {
-        panic!("expected FetchPromptSuggestion first, got {effects:?}");
+        panic!("expected FetchPromptSuggestion, got {effects:?}");
     };
     assert_eq!(*agent_id, id);
     assert!(session_id.is_some());
@@ -2132,12 +2123,11 @@ fn turn_complete_notification_suppressed_when_queue_non_empty() {
         }),
         &mut app,
     );
-    // No re-send; only billing refresh. The second prompt is adopted.
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    // No re-send; no auto billing. The second prompt is adopted.
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_turn_running());
     assert!(
         app.deferred_notification.is_none(),
@@ -2435,12 +2425,11 @@ fn prompt_response_resets_cancelling_to_idle() {
         }),
         &mut app,
     );
-    // Silent billing refresh after turn completion.
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    // No auto billing fetch after turn completion.
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_idle());
     // Cancellation produces a "Turn cancelled" session event.
     assert_eq!(app.agents[&id].scrollback.len(), 1);
@@ -2477,12 +2466,8 @@ fn cancel_with_queued_prompt_drains_on_completion() {
         &mut app,
     );
 
-    assert_eq!(effects.len(), 2);
+    assert_eq!(effects.len(), 1);
     assert!(matches!(&effects[0], Effect::SendPrompt { text, .. } if text == "queued"));
-    assert!(matches!(
-        &effects[1],
-        Effect::FetchBilling { silent: true, .. }
-    ));
     assert!(app.agents[&id].session.state.is_turn_running());
     assert_eq!(app.agents[&id].session.queue_len(), 0);
 }
@@ -2504,12 +2489,11 @@ fn cancel_with_empty_queue_stays_idle() {
         }),
         &mut app,
     );
-    // Silent billing refresh after turn completion.
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    // No auto billing fetch after turn completion.
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_idle());
 }
 
@@ -2558,12 +2542,8 @@ fn cancel_with_multiple_queued_prompts_drains_only_front_prompt() {
         &mut app,
     );
 
-    assert_eq!(effects.len(), 2);
+    assert_eq!(effects.len(), 1);
     assert!(matches!(&effects[0], Effect::SendPrompt { text, .. } if text == "queued-1"));
-    assert!(matches!(
-        &effects[1],
-        Effect::FetchBilling { silent: true, .. }
-    ));
     assert!(app.agents[&id].session.state.is_turn_running());
     assert_eq!(app.agents[&id].session.queue_len(), 1);
     assert_eq!(app.agents[&id].session.pending_prompts[0].text, "queued-2");
@@ -2604,12 +2584,11 @@ fn cancel_drain_is_blocked_when_editing_front_prompt() {
         &mut app,
     );
 
-    // Drain blocked but billing refresh still happens.
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::FetchBilling { silent: true, .. }
-    ));
+    // Drain blocked; no auto billing fetch after turns.
+    assert!(
+        effects.is_empty(),
+        "no auto billing fetch after turn, got {effects:?}"
+    );
     assert!(app.agents[&id].session.state.is_idle());
     assert_eq!(app.agents[&id].session.queue_len(), 2);
     assert_eq!(app.agents[&id].session.pending_prompts[0].text, "queued-1");
