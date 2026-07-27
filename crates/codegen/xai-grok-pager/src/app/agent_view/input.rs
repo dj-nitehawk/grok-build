@@ -1421,6 +1421,7 @@ impl AgentView {
                 InputOutcome::Changed
             }
             ActionId::OpenSettings => InputOutcome::Action(Action::OpenSettings),
+            ActionId::RefreshUsageQuota => InputOutcome::Action(Action::RefreshUsageQuota),
             ActionId::ToggleMouseCapture => {
                 crate::unified_log::info(
                     "mouse_reporting_toggle.handle_agent_action",

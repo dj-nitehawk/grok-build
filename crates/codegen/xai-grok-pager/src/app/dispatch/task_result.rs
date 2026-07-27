@@ -329,6 +329,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             silent,
             nonce,
         } => {
+            // Do not advance the success-cache timestamp on errors — allow
+            // Alt+Q to retry immediately. Still clear the in-flight flag.
+            super::billing::mark_billing_fetch_finished(app, false);
             if let Some(agent) = app.agents.get_mut(&agent_id) {
                 if let Some(state) = usage_modal_state_mut(agent)
                     && state.fetch_nonce == nonce
@@ -347,6 +350,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             vec![]
         }
         TaskResult::AppBillingFetched { balance, autotopup } => {
+            super::billing::mark_billing_fetch_finished(app, balance.is_some());
             app.credit_balance = balance;
             apply_auto_topup(&mut app.auto_topup, &autotopup);
             vec![]

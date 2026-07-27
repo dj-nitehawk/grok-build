@@ -1592,11 +1592,8 @@ pub(super) fn handle_prompt_response(
             });
         }
 
-        effects.push(Effect::FetchBilling {
-            agent_id,
-            silent: true,
-            nonce: Default::default(),
-        });
+        // Usage quota is refreshed only via Alt+Q (1-minute cache). Do not
+        // hit the billing endpoint after every turn.
         note_peek_page_flip(app, agent_id, page_flip_entry);
         return effects;
     }

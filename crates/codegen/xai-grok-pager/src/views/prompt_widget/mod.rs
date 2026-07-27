@@ -12,7 +12,7 @@
 //!                                            ← top vpad (configurable)
 //!  ❯ type here, text wraps                   ← prefix + TextArea
 //!    continuation of long input...            ← TextArea continuation
-//!  grok-3 · yolo                             ← info line (optional)
+//!          grok-3 · 47K / 500K (9%) · yolo   ← info line (optional, centered)
 //! ```
 //!
 //! The accent line (┃) and selection box are rendered by the caller.
@@ -308,18 +308,24 @@ pub struct PromptFlag<'a> {
     pub bold: bool,
 }
 
-/// Optional info line rendered below the prompt text.
+/// Optional info line rendered on the prompt's bottom border (centered).
+///
+/// Fork custom chips (context usage, billing quota) ride as ordinary
+/// [`PromptFlag`] entries so shared call sites on main need no extra fields.
 ///
 /// The default is blank: a caller that wants the bottom border without any info text passes it, and [`Self::is_blank`] then skips the text pass.
 #[derive(Default)]
 pub struct PromptInfo<'a> {
-    /// Primary label to display on the info line (left side).
+    /// Primary label (usually the model name, or an override like
+    /// `editing queued #1` / bash mode).
     pub model_name: &'a str,
-    /// Flags to display on the left side, joined by " · " (e.g., "plan", "always-approve").
+    /// Mode flags joined by `" · "` (e.g., "plan", "always-approve").
+    /// Callers may also append context-usage / quota chips here.
     pub flags: &'a [PromptFlag<'a>],
-    /// Whether multiline mode is active (shown right-aligned).
+    /// Whether multiline mode is active (appended as a trailing flag).
     pub multiline: bool,
-    /// Optional usage warning displayed right-aligned (e.g. "5% usage left").
+    /// Optional credit/usage warning shown before the model name
+    /// (e.g. "5% usage left").
     pub usage_warning: Option<&'a str>,
     /// When true the warning uses the yellow warning color (<=5% left);
     /// when false it uses dim grey text (5-10% left).
@@ -3525,7 +3531,8 @@ impl PromptWidget {
         Style::default().fg(fg).bg(bg)
     }
 
-    /// Render the info line: left-aligned `model_name · flag1 · flag2`, right-aligned `multiline`.
+    /// Render the info line centered on the bottom border:
+    /// `[warning ·] model [· context] [· flags…] [· multiline]`.
     ///
     /// `pub(crate)` so the dashboard's dispatch box (which draws its own
     /// chrome) can paint an identical model + mode indicator on its bottom
@@ -3560,12 +3567,11 @@ impl PromptWidget {
         let sep_style = Style::default().fg(sep_fg).bg(bg);
         let flag_style = Style::default().fg(theme.gray).bg(bg);
 
-        // Left side: model name + flags. Wrap with leading/trailing spaces
-        // so the rendered cells adjacent to the corner borders (╰ / ╯) are
-        // blanked out instead of showing the underlying `─` glyphs from the
-        // bottom-border fill — giving 1 cell of visual padding on each side.
+        // Single centered group. Leading/trailing spaces blank the border
+        // fill (`─`) next to ╰ / ╯ so content never sits flush on corners.
         let pad_style = Style::default().bg(bg);
-        let mut left_spans = vec![Span::styled(" ", pad_style)];
+        let mut spans: Vec<Span<'static>> = vec![Span::styled(" ", pad_style)];
+        let mut has_item = false;
         if let Some(warning) = info.usage_warning {
             let fg = if info.usage_warning_critical {
                 theme.warning
@@ -3573,12 +3579,20 @@ impl PromptWidget {
                 sep_fg
             };
             let warning_style = Style::default().fg(fg).bg(bg);
-            left_spans.push(Span::styled(warning.to_owned(), warning_style));
-            left_spans.push(Span::styled(" · ", sep_style));
+            spans.push(Span::styled(warning.to_owned(), warning_style));
+            has_item = true;
         }
-        left_spans.push(Span::styled(info.model_name, model_style));
+        if !info.model_name.is_empty() {
+            if has_item {
+                spans.push(Span::styled(" · ", sep_style));
+            }
+            spans.push(Span::styled(info.model_name.to_owned(), model_style));
+            has_item = true;
+        }
         for flag in info.flags {
-            left_spans.push(Span::styled(" · ", sep_style));
+            if has_item {
+                spans.push(Span::styled(" · ", sep_style));
+            }
             let mut style = if let Some(color) = flag.color {
                 if flag.bold {
                     // Bold flags use full color for visibility.
@@ -3600,37 +3614,21 @@ impl PromptWidget {
             if flag.bold {
                 style = style.add_modifier(Modifier::BOLD);
             }
-            left_spans.push(Span::styled(flag.text, style));
+            spans.push(Span::styled(flag.text.to_owned(), style));
+            has_item = true;
         }
-        // Trailing pad mirrors the leading pad above.
-        left_spans.push(Span::styled(" ", pad_style));
-
-        // Build right-side spans: "multiline" indicator.
-        let mut right_spans: Vec<Span<'static>> = Vec::new();
         if info.multiline {
-            right_spans.push(Span::styled("multiline", flag_style));
+            if has_item {
+                spans.push(Span::styled(" · ", sep_style));
+            }
+            spans.push(Span::styled("multiline", flag_style));
         }
+        spans.push(Span::styled(" ", pad_style));
 
-        if !right_spans.is_empty() {
-            // Pad the right side so it doesn't sit flush against the ╯ corner.
-            right_spans.push(Span::styled(" ", pad_style));
-            let right_line = Line::from(right_spans);
-            let right_w = right_line.width() as u16;
-            let left_line = Line::from(left_spans);
-            let left_w = (left_line.width() as u16).min(area.width.saturating_sub(right_w + 1));
-            // Right-align both parts: [left][gap][right]
-            let total_w = left_w + 1 + right_w; // 1 for gap
-            let x = area.x + area.width.saturating_sub(total_w);
-            buf.set_line_safe(x, area.y, &left_line, left_w);
-            let rx = area.x + area.width.saturating_sub(right_w);
-            buf.set_line_safe(rx, area.y, &right_line, right_w);
-        } else {
-            // Right-align: clamp to area width so text doesn't overflow borders.
-            let line = Line::from(left_spans);
-            let text_w = (line.width() as u16).min(area.width);
-            let x = area.x + area.width.saturating_sub(text_w);
-            buf.set_line_safe(x, area.y, &line, text_w);
-        }
+        let line = Line::from(spans);
+        let text_w = (line.width() as u16).min(area.width);
+        let x = area.x + area.width.saturating_sub(text_w) / 2;
+        buf.set_line_safe(x, area.y, &line, text_w);
     }
 }
 

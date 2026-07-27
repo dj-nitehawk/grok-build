@@ -867,6 +867,21 @@ pub(super) fn default_actions(
             requires_confirmation: false,
             long_help: None,
         },
+        ActionDef {
+            id: ActionId::RefreshUsageQuota,
+            label: "usage quota",
+            description: "Refresh usage quota on the prompt info line",
+            default_key: key!('q', ALT),
+            alt_keys: vec![],
+            category: Category::Session,
+            context: When::AgentScreen,
+            hint_priority: None,
+            hint_key_display: Some("Alt+Q"),
+            requires_confirmation: false,
+            long_help: Some(
+                "Fetches your Grok usage quota and shows it on the prompt's bottom border as a percentage with reset time (e.g. 10% (reset: 4d5h)).\nResults are cached for one minute — pressing Alt+Q more often reuses the cache and does not hit the endpoint again.",
+            ),
+        },
     ];
 
     // Toggle terminal mouse reporting (mouse capture). Opt-in via
