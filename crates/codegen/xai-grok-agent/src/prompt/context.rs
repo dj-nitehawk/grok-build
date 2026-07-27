@@ -804,15 +804,15 @@ mod tests {
         }
     }
     #[test]
-    fn child_rendered_prompt_includes_memory_section() {
+    fn child_rendered_prompt_omits_memory_section() {
         let rendered = render_subagent_template(base_template_ctx());
         assert!(
-            rendered.contains("<memory>"),
-            "should contain <memory> section"
+            !rendered.contains("<memory>"),
+            "slim subagent template omits the memory section"
         );
         assert!(
-            rendered.contains("memory_search"),
-            "should reference memory_search"
+            !rendered.contains("memory_search"),
+            "slim subagent template should not reference memory tools"
         );
     }
     #[test]
@@ -833,19 +833,19 @@ mod tests {
         );
     }
     #[test]
-    fn child_rendered_prompt_includes_project_instructions_like_main_agent() {
+    fn child_rendered_prompt_includes_action_safety() {
         let rendered = render_subagent_template(base_template_ctx());
         assert!(
-            rendered.contains("<project_instructions_spec>"),
-            "subagent must include project_instructions_spec"
+            rendered.contains("<action_safety>"),
+            "subagent must include action_safety"
         );
         assert!(
-            rendered.contains("## Project Instruction Files"),
-            "subagent project instructions must match the main agent spec"
+            rendered.contains("destructive, irreversible, or impacts shared/external state"),
+            "subagent must warn about destructive/shared-state actions"
         );
         assert!(
-            rendered.contains("you must check for additional project instruction files"),
-            "subagent must be told to proactively check nested AGENTS.md"
+            rendered.contains("unless the assigned task explicitly requires it"),
+            "subagent may only take risky actions when the task requires them"
         );
     }
     #[test]
@@ -886,18 +886,6 @@ mod tests {
         );
     }
     #[test]
-    fn child_rendered_prompt_has_hashline_guidance() {
-        let rendered = render_subagent_template(base_template_ctx());
-        assert!(
-            rendered.contains("hashline workflow"),
-            "should include hashline guidance"
-        );
-        assert!(
-            rendered.contains("batch semantics"),
-            "should include batch semantics"
-        );
-    }
-    #[test]
     fn child_rendered_prompt_has_background_tasks_when_execute_available() {
         let rendered = render_subagent_template(base_template_ctx());
         assert!(
@@ -910,15 +898,27 @@ mod tests {
         );
     }
     #[test]
-    fn child_rendered_prompt_has_code_change_rules_when_edit_available() {
+    fn child_rendered_prompt_has_action_safety_always() {
         let rendered = render_subagent_template(base_template_ctx());
         assert!(
-            rendered.contains("<making_code_changes>"),
-            "should include making_code_changes when edit tools are available"
+            rendered.contains("<action_safety>"),
+            "slim subagent prompt always includes action_safety"
         );
         assert!(
-            rendered.contains("</making_code_changes>"),
-            "making_code_changes section should be properly closed"
+            !rendered.contains("<tool_calling>"),
+            "slim subagent prompt omits tool_calling"
+        );
+        assert!(
+            !rendered.contains("<making_code_changes>"),
+            "slim subagent prompt omits making_code_changes"
+        );
+        assert!(
+            !rendered.contains("<formatting>"),
+            "slim subagent prompt omits formatting"
+        );
+        assert!(
+            !rendered.contains("<project_instructions_spec>"),
+            "slim subagent prompt omits project_instructions_spec"
         );
     }
     #[test]
@@ -945,21 +945,25 @@ mod tests {
             "background_tasks should be absent without execute tool"
         );
         assert!(
-            rendered.contains("hashline workflow"),
-            "hashline guidance should still be present"
+            rendered.contains("<action_safety>"),
+            "action_safety should still be present"
+        );
+        assert!(
+            rendered.contains("<user_info>"),
+            "user_info should still be present"
         );
     }
     #[test]
     fn child_rendered_template_is_compact() {
         let rendered = render_subagent_template(base_template_ctx());
         assert!(
-            rendered.len() < 3700,
+            rendered.len() < 2000,
             "rendered child template too large: {} chars",
             rendered.len()
         );
     }
     #[test]
-    fn child_rendered_prompt_omits_code_change_rules_without_edit_tools() {
+    fn child_rendered_prompt_keeps_core_sections_without_edit_tools() {
         let ctx = minijinja::context! {
             os_name => "linux",
             shell_path => "/bin/bash",
@@ -981,18 +985,19 @@ mod tests {
         let rendered = render_subagent_template(ctx);
         assert!(
             !rendered.contains("<making_code_changes>"),
-            "read-only agents should not see code change rules"
+            "slim subagent has no making_code_changes section"
         );
-        assert!(rendered.contains("<tool_calling>"));
+        assert!(!rendered.contains("<tool_calling>"));
         assert!(rendered.contains("<background_tasks>"));
-        assert!(rendered.contains("<formatting>"));
+        assert!(rendered.contains("<action_safety>"));
+        assert!(rendered.contains("<user_info>"));
     }
     #[test]
     fn rendered_prompt_size_general_purpose() {
         let rendered = render_subagent_template(base_template_ctx());
         assert!(
-            rendered.len() < 3700,
-            "general-purpose rendered prompt: {} chars (ceiling 3700)",
+            rendered.len() < 2000,
+            "general-purpose rendered prompt: {} chars (ceiling 2000)",
             rendered.len()
         );
     }
@@ -1018,46 +1023,22 @@ mod tests {
         };
         let rendered = render_subagent_template(ctx);
         assert!(
-            rendered.len() < 2800,
-            "read-only rendered prompt: {} chars (ceiling 2800)",
+            rendered.len() < 2000,
+            "read-only rendered prompt: {} chars (ceiling 2000)",
             rendered.len()
         );
+        // Slim template no longer gates large tool sections on edit tools, so
+        // read-only and general-purpose sizes stay in the same compact band.
         let full = render_subagent_template(base_template_ctx());
         assert!(
-            rendered.len() < full.len(),
-            "read-only prompt ({}) should be smaller than general-purpose ({})",
+            rendered.len() <= full.len() + 50,
+            "read-only prompt ({}) should stay near general-purpose size ({})",
             rendered.len(),
             full.len()
         );
     }
     #[test]
-    fn child_rendered_prompt_omits_edit_references_without_edit_tool() {
-        let ctx = minijinja::context! {
-            os_name => "linux",
-            shell_path => "/bin/bash",
-            working_directory => "/workspace",
-            current_date => "2026-03-26",
-            memory_enabled => false,
-            role_instructions => "",
-            persona_instructions => "",
-            tools => minijinja::context! {
-                by_kind => minijinja::context! {
-                    read => "read_file",
-                    search => "grep",
-                    execute => "run_terminal_cmd",
-                    background_task_action => "get_task_output",
-                }
-            },
-
-        };
-        let rendered = render_subagent_template(ctx);
-        assert!(
-            !rendered.contains("for editing"),
-            "should not mention editing when edit tool is absent"
-        );
-    }
-    #[test]
-    fn child_rendered_prompt_omits_execute_references_without_execute_tool() {
+    fn child_rendered_prompt_omits_background_tasks_and_tool_names_without_execute() {
         let ctx = minijinja::context! {
             os_name => "linux",
             shell_path => "/bin/bash",
@@ -1076,16 +1057,20 @@ mod tests {
         };
         let rendered = render_subagent_template(ctx);
         assert!(
-            !rendered.contains("system commands"),
-            "should not mention system commands when execute tool is absent"
+            !rendered.contains("<background_tasks>"),
+            "background_tasks should be absent without execute tool"
         );
         assert!(
-            !rendered.contains("Reserve"),
-            "should not mention Reserve (bash) when execute tool is absent"
+            !rendered.contains("run_terminal_cmd"),
+            "should not resolve execute tool name when execute tool is absent"
+        );
+        assert!(
+            rendered.contains("<action_safety>"),
+            "action_safety remains without execute"
         );
     }
     #[test]
-    fn child_rendered_prompt_omits_both_edit_and_execute_references() {
+    fn child_rendered_prompt_stays_compact_with_minimal_tools() {
         let ctx = minijinja::context! {
             os_name => "linux",
             shell_path => "/bin/bash",
@@ -1103,17 +1088,20 @@ mod tests {
         };
         let rendered = render_subagent_template(ctx);
         assert!(
-            !rendered.contains("for editing"),
-            "should not mention editing"
+            !rendered.contains("<background_tasks>"),
+            "background_tasks should be absent without execute"
         );
         assert!(
-            !rendered.contains("system commands"),
-            "should not mention system commands"
+            !rendered.contains("<tool_calling>"),
+            "slim subagent has no tool_calling section"
         );
-        assert!(!rendered.contains("Reserve"), "should not mention Reserve");
         assert!(
-            rendered.contains("`read_file` for reading."),
-            "tool_calling line should end cleanly after read reference"
+            rendered.contains("<action_safety>"),
+            "action_safety is always present"
+        );
+        assert!(
+            rendered.contains("<user_info>"),
+            "user_info is always present"
         );
     }
     #[test]
