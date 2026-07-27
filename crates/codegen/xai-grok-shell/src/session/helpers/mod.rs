@@ -8,6 +8,7 @@ pub mod prompt_suggest;
 pub mod replay;
 pub mod rewind_preview;
 pub mod session_compact;
+pub mod session_handoff;
 pub mod session_recap;
 pub mod session_summary;
 pub mod tool_input_parsing;
