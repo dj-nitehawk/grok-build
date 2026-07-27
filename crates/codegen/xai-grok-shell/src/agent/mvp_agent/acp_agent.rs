@@ -2035,6 +2035,7 @@ impl acp::Agent for MvpAgent {
             | "x.ai/feedback/drafts/get" | "x.ai/feedback/drafts/delete"
             | "x.ai/feedback/drafts/update" | "x.ai/feedback/upload-trace"
             | "x.ai/btw" => crate::extensions::feedback::handle(self, &args).await,
+            "x.ai/handoff" => crate::extensions::handoff::handle(self, &args).await,
             "x.ai/recap" => crate::extensions::recap::handle(self, &args).await,
             "x.ai/cloud/terminate" => {
                 crate::extensions::auth_gate::require_xai_auth(
