@@ -411,6 +411,12 @@ Log in or re-authenticate without leaving the session.
 
 Log out and return to the login screen.
 
+### `/purge`
+
+Permanently delete **all** session history and logs under `~/.grok` (or `$GROK_HOME`), then exit immediately.
+
+Config, auth credentials, skills, plugins, and cross-session memory are kept. Remote writeback copies are removed when your account uses non-ZDR writeback storage.
+
 ### `/usage`
 
 View credit usage or manage billing. Alias: `/cost`.

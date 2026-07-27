@@ -262,9 +262,15 @@ grok sessions list --limit 50
 
 # Search sessions by keyword (matches titles and prompts)
 grok sessions search "rate limit"
+
+# Delete one session by ID
+grok sessions delete <session-id>
+
+# Wipe all session history and logs
+grok sessions purge
 ```
 
-`grok sessions list` shows sessions for the current working directory, grouped by worktree label. Each row lists the session ID, the creation and update dates, the source status, and the summary. `grok sessions search` combines a local SQLite index with remote results.
+`grok sessions list` shows sessions for the current working directory, grouped by worktree label. Each row lists the session ID, the creation and update dates, the source status, and the summary. `grok sessions search` combines a local SQLite index with remote results. `grok sessions purge` removes every local session directory and the contents of `~/.grok/logs/`, and best-effort deletes remote writeback copies. Config, auth, skills, and memory are not touched. From the TUI, use `/purge` (exits after the purge).
 
 ---
 
