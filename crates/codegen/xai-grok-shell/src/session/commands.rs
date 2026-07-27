@@ -864,6 +864,14 @@ pub enum SessionCommand {
         images: Vec<acp::ImageContent>,
         respond_to: oneshot::Sender<Result<String, SideQuestionError>>,
     },
+    /// Generate a task-scoped handoff note without mutating conversation.
+    ///
+    /// Snapshots history, makes one tool-free model call steered by `task`,
+    /// and returns only the note text (caller seeds a new empty session).
+    Handoff {
+        task: String,
+        respond_to: oneshot::Sender<Result<String, String>>,
+    },
     /// Generate a session recap (a short "where was I" summary) and broadcast it to clients via `SessionUpdate::SessionRecap`.
     /// Fire-and-forget: the session snapshots the conversation, makes a single tool-free model call, and emits the result for display only.
     /// It never mutates the conversation, so unlike `SideQuestion` it needs no reply channel; the answer travels back as a notification.

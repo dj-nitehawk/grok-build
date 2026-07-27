@@ -2032,6 +2032,14 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             image_notice,
             &skipped_image_numbers,
         ),
+        TaskResult::HandoffReady {
+            agent_id,
+            note,
+            task,
+        } => super::session::handoff::handle_handoff_ready(app, agent_id, note, task),
+        TaskResult::HandoffFailed { agent_id, error } => {
+            super::session::handoff::handle_handoff_failed(app, agent_id, error)
+        }
         TaskResult::InterjectQueued { .. } => vec![],
         TaskResult::RecapRequested {
             session_id,
