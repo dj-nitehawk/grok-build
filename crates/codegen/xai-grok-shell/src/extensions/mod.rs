@@ -15,6 +15,7 @@ pub mod feedback_drafts;
 pub(crate) mod feedback_trace;
 pub mod fs;
 pub mod git;
+pub mod handoff;
 pub mod hooks;
 pub mod hunk_tracker;
 pub mod interject;
