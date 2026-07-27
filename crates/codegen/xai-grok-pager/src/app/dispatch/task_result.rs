@@ -2066,6 +2066,14 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             minimal_request_id,
             image_notice,
         } => handle_btw_response(app, agent_id, result, minimal_request_id, image_notice),
+        TaskResult::HandoffReady {
+            agent_id,
+            note,
+            task,
+        } => super::session::handoff::handle_handoff_ready(app, agent_id, note, task),
+        TaskResult::HandoffFailed { agent_id, error } => {
+            super::session::handoff::handle_handoff_failed(app, agent_id, error)
+        }
         TaskResult::InterjectQueued { .. } => vec![],
         TaskResult::RecapRequested {
             session_id,

@@ -1,6 +1,7 @@
 #![cfg_attr(rustfmt, rustfmt::skip)]
 //! This module takes [`Effect`] values produced by [`super::dispatch`] and spawns them as async tasks on a [`JoinSet`].
 //! When tasks complete, the event loop converts their output into [`TaskResult`] and feeds it back through dispatch.
+mod handoff;
 mod helpers;
 mod session_list;
 use super::actions;
@@ -4496,6 +4497,13 @@ pub(crate) fn execute(
                         }
                     }
                 });
+        }
+        Effect::Handoff {
+            agent_id,
+            session_id,
+            task,
+        } => {
+            handoff::spawn_handoff(tasks, acp_tx, agent_id, session_id, task);
         }
         Effect::SendRecap { session_id, auto } => {
             let tx = acp_tx.clone();

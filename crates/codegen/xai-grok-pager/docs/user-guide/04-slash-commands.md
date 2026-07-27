@@ -47,6 +47,15 @@ Show session details — auth method, model, turn count, and context usage. Alia
 
 Branch the current session into a new agent, keeping history up to this point.
 
+### `/handoff <task>`
+
+Transfer **task-relevant** context into a new empty session. Grok summarizes only details needed for the given task (not the full transcript), opens a peer session, and seeds it with the handoff note plus the task. Unlike `/fork`, history is not copied.
+
+```
+/handoff implement the teams feature next
+/handoff fix the remaining test failures in auth
+```
+
 ### `/rewind` (alias: `/undo`)
 
 Roll the conversation back to an earlier turn and discard everything after it. `/undo` is the same command.
