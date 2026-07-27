@@ -1478,3 +1478,223 @@ fn handle_ask_user_question_pushes_system_block_when_displaced_local_fork_modal(
         "exactly one system block pushed"
     );
 }
+
+// ── Handoff tests ────────────────────────────────────────────────
+
+#[test]
+fn dispatch_handoff_from_welcome_toasts_and_returns_no_effect() {
+    let mut app = fork_test_app();
+    app.active_view = ActiveView::Welcome;
+    let effects = dispatch(
+        Action::Handoff {
+            task: "do the thing".into(),
+        },
+        &mut app,
+    );
+    assert!(effects.is_empty());
+    assert_eq!(app.agents.len(), 1);
+}
+
+#[test]
+fn dispatch_handoff_without_session_id_toasts_and_returns_no_effect() {
+    let mut app = fork_test_app();
+    app.agents.get_mut(&AgentId(0)).unwrap().session.session_id = None;
+    let effects = dispatch(
+        Action::Handoff {
+            task: "do the thing".into(),
+        },
+        &mut app,
+    );
+    assert!(effects.is_empty());
+    assert_eq!(app.agents.len(), 1);
+    let toast = app.agents[&AgentId(0)]
+        .toast
+        .as_ref()
+        .expect("toast should be set");
+    assert!(
+        toast.0.contains("still being created"),
+        "got: {}",
+        toast.0
+    );
+}
+
+#[test]
+fn dispatch_handoff_emits_handoff_effect() {
+    let mut app = fork_test_app();
+    let effects = dispatch(
+        Action::Handoff {
+            task: "implement feature X".into(),
+        },
+        &mut app,
+    );
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::Handoff {
+                agent_id: AgentId(0),
+                task,
+                ..
+            }] if task == "implement feature X"
+        ),
+        "got {effects:?}"
+    );
+    // Parent stays active while the note is generated.
+    assert_eq!(app.active_view, ActiveView::Agent(AgentId(0)));
+    assert_eq!(app.agents.len(), 1);
+    let agent = &app.agents[&AgentId(0)];
+    let pending = agent
+        .pending_handoff_entry
+        .expect("running handoff spinner entry");
+    let entry = agent
+        .scrollback
+        .get_by_id(pending)
+        .expect("pending handoff entry present");
+    assert!(entry.is_running, "handoff loading entry must be running");
+    match &entry.block {
+        RenderBlock::System(sys) => {
+            assert!(
+                sys.text.contains("Generating handoff note")
+                    && sys.text.contains("implement feature X"),
+                "got: {}",
+                sys.text
+            );
+        }
+        other => panic!("expected System loading block, got {other:?}"),
+    }
+}
+
+#[test]
+fn dispatch_handoff_while_in_progress_refuses_second_request() {
+    let mut app = fork_test_app();
+    let first = dispatch(
+        Action::Handoff {
+            task: "first task".into(),
+        },
+        &mut app,
+    );
+    assert_eq!(first.len(), 1);
+    let effects = dispatch(
+        Action::Handoff {
+            task: "second task".into(),
+        },
+        &mut app,
+    );
+    assert!(effects.is_empty(), "second handoff must not stack: {effects:?}");
+    let agent = &app.agents[&AgentId(0)];
+    let toast = agent.toast.as_ref().expect("refusal toast");
+    assert!(
+        toast.0.contains("already in progress"),
+        "got: {}",
+        toast.0
+    );
+    // Still only one pending spinner.
+    assert!(agent.pending_handoff_entry.is_some());
+    let running_count = agent
+        .scrollback
+        .iter_entries()
+        .filter(|(_, e)| e.is_running)
+        .count();
+    assert_eq!(running_count, 1, "must not stack running handoff entries");
+}
+
+#[test]
+fn handoff_ready_creates_empty_peer_and_seeds_prompt() {
+    let mut app = fork_test_app();
+    // Simulate the loading entry that dispatch_handoff would have created.
+    {
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        let id = agent.scrollback.push(
+            crate::scrollback::entry::ScrollbackEntry::running(RenderBlock::system(
+                "Generating handoff note \u{2014} continue shipping",
+            )),
+        );
+        agent.pending_handoff_entry = Some(id);
+    }
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::HandoffReady {
+            agent_id: AgentId(0),
+            note: "### Goal\nShip handoff".into(),
+            task: "continue shipping".into(),
+        }),
+        &mut app,
+    );
+    assert_eq!(app.agents.len(), 2, "peer agent created");
+    assert_eq!(app.active_view, ActiveView::Agent(AgentId(1)));
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::CreateSession {
+                agent_id: AgentId(1),
+                ..
+            }]
+        ),
+        "expected CreateSession (empty history), got {effects:?}"
+    );
+    let child = &app.agents[&AgentId(1)];
+    assert_eq!(child.session.forked_from, Some(AgentId(0)));
+    assert!(
+        child.session.pending_prompts.iter().any(|p| {
+            p.text.contains("Ship handoff") && p.text.contains("continue shipping")
+        }),
+        "seed prompt must include note and task, queue={:?}",
+        child
+            .session
+            .pending_prompts
+            .iter()
+            .map(|p| p.text.clone())
+            .collect::<Vec<_>>()
+    );
+    // Must not be a full history fork.
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::ForkSession { .. })),
+        "handoff must not copy history via ForkSession"
+    );
+    // Parent loading spinner is resolved to a completed system line.
+    let parent = &app.agents[&AgentId(0)];
+    assert!(parent.pending_handoff_entry.is_none());
+    let finished = parent
+        .scrollback
+        .iter_entries()
+        .find(|(_, e)| {
+            matches!(&e.block, RenderBlock::System(s) if s.text.contains("Handed off: continue shipping"))
+        })
+        .expect("completed handoff system line");
+    assert!(!finished.1.is_running, "spinner must stop on ready");
+}
+
+#[test]
+fn handoff_failed_toasts_on_parent() {
+    let mut app = fork_test_app();
+    {
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        let id = agent.scrollback.push(
+            crate::scrollback::entry::ScrollbackEntry::running(RenderBlock::system(
+                "Generating handoff note \u{2014} task",
+            )),
+        );
+        agent.pending_handoff_entry = Some(id);
+    }
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::HandoffFailed {
+            agent_id: AgentId(0),
+            error: "model timeout".into(),
+        }),
+        &mut app,
+    );
+    assert!(effects.is_empty());
+    assert_eq!(app.agents.len(), 1);
+    let agent = &app.agents[&AgentId(0)];
+    let toast = agent.toast.as_ref().expect("toast should be set");
+    assert!(toast.0.contains("model timeout"), "got: {}", toast.0);
+    assert!(agent.pending_handoff_entry.is_none());
+    let finished = agent
+        .scrollback
+        .iter_entries()
+        .find(|(_, e)| {
+            matches!(&e.block, RenderBlock::System(s) if s.text.contains("Handoff failed: model timeout"))
+        })
+        .expect("failed handoff system line");
+    assert!(!finished.1.is_running, "spinner must stop on failure");
+}

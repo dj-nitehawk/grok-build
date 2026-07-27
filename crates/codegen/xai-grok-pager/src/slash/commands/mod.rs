@@ -28,6 +28,7 @@ pub mod feedback;
 pub mod find;
 pub mod fork;
 pub mod gboom;
+pub mod handoff;
 pub mod help;
 pub mod history;
 pub mod home;
@@ -85,6 +86,7 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(delete::DeleteCommand),
         Arc::new(new::NewCommand),
         Arc::new(fork::ForkCommand),
+        Arc::new(handoff::HandoffCommand),
         Arc::new(compact::CompactCommand),
         Arc::new(copy::CopyCommand),
         Arc::new(find::FindCommand),

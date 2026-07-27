@@ -2124,6 +2124,7 @@ mod tests {
         for hide in [
             "/compact",
             "/fork",
+            "/handoff",
             "/rewind",
             "/share",
             "/context",
@@ -2158,6 +2159,7 @@ mod tests {
             .collect();
         assert!(names.iter().any(|d| d == "/compact"));
         assert!(names.iter().any(|d| d == "/fork"));
+        assert!(names.iter().any(|d| d == "/handoff"));
         assert!(names.iter().any(|d| d == "/doctor"));
     }
 
