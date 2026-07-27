@@ -393,13 +393,47 @@ pub(super) fn append_consumer_billing_surface(app: &mut AppView, agent_id: Agent
     if !app.agents.contains_key(&agent_id) {
         return vec![];
     }
+    // Within the 1-minute cache, render the cached summary instead of
+    // hitting the endpoint again.
+    if !super::billing::billing_fetch_allowed(app) {
+        if let Some(agent) = app.agents.get_mut(&agent_id)
+            && !agent.chat_kind
+        {
+            let msg = match (app.credit_balance.as_ref(), app.auto_topup.as_ref()) {
+                (Some(bal), topup) => {
+                    crate::views::credit_bar::format_usage_summary(bal, topup)
+                }
+                (None, _) => "No billing data available.".to_string(),
+            };
+            agent.scrollback.push_block(RenderBlock::System(
+                crate::scrollback::blocks::SystemMessageBlock::new(msg),
+            ));
+        }
+        return vec![];
+    }
     // Non-silent: the effect also pulls the auto top-up rule so the summary
     // renders usage, prepaid credits, and auto top-up together.
-    vec![Effect::FetchBilling {
-        agent_id,
-        silent: false,
-        nonce: 0,
-    }]
+    super::billing::fetch_billing_if_allowed(app, agent_id, false)
+}
+
+/// Alt+Q — refresh Grok usage quota for the prompt info line.
+///
+/// Hits the billing endpoint only when the 1-minute cache has expired
+/// (and no fetch is already in flight). While the fetch runs the info line
+/// shows `"refreshing..."`; on completion it shows the cached balance.
+/// Scrollback stays silent (`silent: true`).
+pub(super) fn dispatch_refresh_usage_quota(app: &mut AppView) -> Vec<Effect> {
+    if !app.usage_visible {
+        return vec![];
+    }
+    let crate::app::app_view::ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    if !app.agents.contains_key(&id) {
+        return vec![];
+    }
+    // Silent: update the cache / info line only — no scrollback spam.
+    super::billing::fetch_billing_if_allowed(app, id, true)
 }
 
 /// `/usage manage` — open consumer billing. No-op when the surface is hidden.

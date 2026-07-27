@@ -344,6 +344,53 @@ pub(super) fn apply_auto_topup(
     }
 }
 
+/// Minimum interval between billing endpoint hits (Alt+Q and other paths).
+pub(crate) const BILLING_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether a fresh billing fetch is allowed right now (cache miss + not in flight).
+pub(crate) fn billing_fetch_allowed(app: &AppView) -> bool {
+    if app.billing_fetch_in_flight {
+        return false;
+    }
+    match app.billing_fetched_at {
+        None => true,
+        Some(at) => at.elapsed() >= BILLING_CACHE_TTL,
+    }
+}
+
+/// Mark that a billing network fetch is about to start.
+pub(crate) fn mark_billing_fetch_started(app: &mut AppView) {
+    app.billing_fetch_in_flight = true;
+}
+
+/// Record a completed billing fetch (success or terminal error) for the cache.
+pub(crate) fn mark_billing_fetch_finished(app: &mut AppView, success: bool) {
+    app.billing_fetch_in_flight = false;
+    if success {
+        app.billing_fetched_at = Some(std::time::Instant::now());
+    }
+}
+
+/// Emit `FetchBilling` only when the 1-minute cache allows it.
+///
+/// Returns an empty vec when the cache is still warm or a fetch is already
+/// in flight — the info line keeps using the last cached balance.
+pub(crate) fn fetch_billing_if_allowed(
+    app: &mut AppView,
+    agent_id: AgentId,
+    silent: bool,
+) -> Vec<Effect> {
+    if !billing_fetch_allowed(app) {
+        return vec![];
+    }
+    mark_billing_fetch_started(app);
+    vec![Effect::FetchBilling {
+        agent_id,
+        silent,
+        nonce: 0,
+    }]
+}
+
 // TaskResult handlers.
 
 pub(super) fn handle_billing_fetched(
@@ -357,17 +404,17 @@ pub(super) fn handle_billing_fetched(
 ) -> Vec<Effect> {
     // Parse/transport failures route to `BillingError`, so a `None`
     // balance here means the response carried no billing config. Clear
-    // the cached balance + polling so the status bar agrees with the
+    // the cached balance so the status bar agrees with the
     // "No billing data available." message rather than showing a stale
     // value.
+    mark_billing_fetch_finished(app, true);
     app.credit_balance = balance.clone();
     // `Resolved` updates the cached rule, `Cleared` resets it to unknown
     // (no credits), `Unchanged` keeps the last-known-good (fetch failed).
     apply_auto_topup(&mut app.auto_topup, &autotopup);
-    app.billing_poll_wanted = balance
-        .as_ref()
-        .map(|b| b.usage_pct >= 99.0)
-        .unwrap_or(false);
+    // Info-line quota is manual (Alt+Q) with a 1-minute cache — never
+    // re-enable the legacy high-usage 30s poll.
+    app.billing_poll_wanted = false;
     if let Some(tier) = subscription_tier {
         app.subscription_tier = Some(tier);
     }
@@ -537,12 +584,9 @@ pub(super) fn handle_credit_limit_recheck_complete(
     // Either way, drop the stashed prompt.
     agent.credit_limit_stashed_prompt = None;
 
-    let mut drain = maybe_drain_queue(agent);
-    drain.effects.push(Effect::FetchBilling {
-        agent_id,
-        silent: true,
-        nonce: 0,
-    });
+    let drain = maybe_drain_queue(agent);
+    // Usage quota is refreshed only via Alt+Q (1-minute cache) — do not
+    // auto-fetch after a credit-limit recheck.
     note_peek_page_flip(app, agent_id, drain.page_flip_entry);
     drain.effects
 }

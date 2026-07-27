@@ -719,11 +719,23 @@ pub struct AppView {
     /// defaults to `false` (non-leader, dashboard hidden).
     pub leader_mode: bool,
     /// App-level credit balance used to show the usage warning on the
-    /// welcome screen before any agent session exists.
+    /// welcome screen before any agent session exists. Also feeds the
+    /// prompt info-line quota chip after it is applied to the agent.
     pub credit_balance: Option<crate::views::credit_bar::CreditBalance>,
     /// App-level auto top-up rule paired with `credit_balance` for the warning.
     pub auto_topup: Option<crate::views::credit_bar::AutoTopupInfo>,
+    /// When the billing endpoint was last successfully contacted. Used to
+    /// enforce a 1-minute cache so Alt+Q (and any other billing fetch path)
+    /// never hits the endpoint more than once per minute.
+    pub billing_fetched_at: Option<std::time::Instant>,
+    /// True while a billing fetch task is in flight — prevents stacking
+    /// concurrent Alt+Q / `/usage` requests before the first lands.
+    pub billing_fetch_in_flight: bool,
     /// Periodic billing poll requested (credits >= 99%).
+    ///
+    /// Disabled for the info-line quota chip: usage is refreshed only via
+    /// Alt+Q (1-minute cache). Kept for test compatibility; never set `true`
+    /// by production code paths anymore.
     pub billing_poll_wanted: bool,
     /// Leader-mode session roster (FleetView dashboard). Populated from
     /// `x.ai/sessions/list` polls and `x.ai/sessions/changed` broadcasts.
@@ -1626,6 +1638,8 @@ impl AppView {
             leader_mode: false,
             credit_balance: None,
             auto_topup: None,
+            billing_fetched_at: None,
+            billing_fetch_in_flight: false,
             billing_poll_wanted: false,
             leader_roster: Vec::new(),
             dashboard_local_sessions: Vec::new(),
@@ -4881,6 +4895,7 @@ impl AppView {
                                     voice_listening,
                                     voice_interim: voice_interim.as_deref(),
                                     esc_owned_before_agent,
+                                    billing_fetch_in_flight: self.billing_fetch_in_flight,
                                 },
                             );
                             if let Some(modal) = self.import_claude_modal.as_mut() {
@@ -4999,6 +5014,8 @@ impl AppView {
                                                     link_spans,
                                                     AppRenderParams {
                                                         esc_owned_before_agent,
+                                                        billing_fetch_in_flight: self
+                                                            .billing_fetch_in_flight,
                                                         ..Default::default()
                                                     },
                                                 )
