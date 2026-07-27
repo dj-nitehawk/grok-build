@@ -4259,12 +4259,8 @@ pub(crate) fn execute(
                                 BillingConfigResponse,
                             >(result.clone()) {
                                 Ok(billing) => {
-                                    let balance = billing
-                                        .config
-                                        .map(|c| crate::views::credit_bar::CreditBalance {
-                                            period_end_display: None,
-                                            ..credit_balance_from_config(c)
-                                        });
+                                    let balance =
+                                        billing.config.map(credit_balance_from_config);
                                     let autotopup = if has_prepaid_credits(balance.as_ref()) {
                                         fetch_auto_topup_info(&tx).await
                                     } else {

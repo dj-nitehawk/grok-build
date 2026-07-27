@@ -1136,11 +1136,8 @@ pub(in crate::app::dispatch) fn handle_session_loaded(
                 session_id: hydrate_sid.clone(),
             });
         }
-        effects.push(Effect::FetchBilling {
-            agent_id,
-            silent: true,
-            nonce: 0,
-        });
+        // Usage quota is refreshed only via Alt+Q (1-minute cache). Do not
+        // auto-fetch billing on session load.
         if let Some(switch) = deferred {
             agent.session.model_switch_pending = true;
             effects.push(Effect::SwitchModel {

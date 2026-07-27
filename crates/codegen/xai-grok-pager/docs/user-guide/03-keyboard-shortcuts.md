@@ -217,6 +217,7 @@ Actions that affect the agent session, available from the agent screen.
 | `!` | Prompt focused | Enter shell mode (type `!` on an empty prompt) |
 | `Ctrl+.` (alt: `Ctrl+X`) | Agent screen | Open the keyboard shortcuts help |
 | `F2` (alt: `Ctrl+,` / `Cmd+,`) | Agent screen | Open the settings modal |
+| `Alt+Q` | Agent screen | Refresh Grok usage quota on the prompt bottom border (`10% (reset: 4d5h)`). Shows `refreshing...` while the fetch is in flight. Cached for 1 minute — further presses reuse the cache. |
 
 **Note:** `Ctrl+M` is context-dependent. When the prompt is focused, it toggles multiline input mode. Otherwise, it opens the model picker.
 

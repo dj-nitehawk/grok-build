@@ -120,6 +120,11 @@ pub enum ActionId {
     // Settings
     OpenSettings,
 
+    /// Refresh Grok usage-quota details for the prompt info line (Alt+Q).
+    /// Hits the billing endpoint at most once per minute; the info line
+    /// always reads the cached balance.
+    RefreshUsageQuota,
+
     // Agent Dashboard
     OpenDashboard,
     DashboardSelectNext,
@@ -654,6 +659,25 @@ mod tests {
             Some(ActionId::HalfPageDown)
         );
         assert_eq!(registry.lookup(&ctrl_d, When::Always), Some(ActionId::Quit));
+    }
+
+    /// Alt+Q (usage quota) must match both lower and upper case letter
+    /// encodings terminals deliver for Alt+letter chords.
+    #[test]
+    fn refresh_usage_quota_alt_q_case_insensitive() {
+        let registry = ActionRegistry::defaults();
+        let alt_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT);
+        let alt_q_upper = KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::ALT);
+        assert_eq!(
+            registry.lookup(&alt_q, When::AgentScreen),
+            Some(ActionId::RefreshUsageQuota)
+        );
+        assert_eq!(
+            registry.lookup(&alt_q_upper, When::AgentScreen),
+            Some(ActionId::RefreshUsageQuota)
+        );
+        assert!(registry.matches_id(ActionId::RefreshUsageQuota, &alt_q));
+        assert!(registry.matches_id(ActionId::RefreshUsageQuota, &alt_q_upper));
     }
 
     #[test]
