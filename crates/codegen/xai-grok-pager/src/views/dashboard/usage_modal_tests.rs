@@ -156,6 +156,7 @@ fn usage_modal_renders_allowance_from_app_balance() {
     let balance = CreditBalance {
         usage_pct: 42.0,
         effective_usage_pct: 42.0,
+        period_end: None,
         period_end_display: Some("May 29, 00:00".to_string()),
         pay_as_you_go: false,
         on_demand_cap_cents: None,
