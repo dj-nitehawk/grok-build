@@ -775,24 +775,20 @@ fn billing_fetched_none_balance_clears_cached() {
 }
 
 #[test]
-fn billing_fetched_high_usage_enables_poll() {
+fn billing_fetched_never_enables_poll() {
+    // High-usage 30s poll retired: quota refreshes only via Alt+Q.
     let mut app = test_app_with_agent();
     assert!(!app.billing_poll_wanted);
     dispatch_billing(&mut app, Some(test_bal(99.5)), true, None);
     assert!(
-        app.billing_poll_wanted,
-        "usage >= 99% should enable billing polling"
+        !app.billing_poll_wanted,
+        "billing fetch must not re-enable the legacy poll"
     );
-}
-
-#[test]
-fn billing_fetched_low_usage_disables_poll() {
-    let mut app = test_app_with_agent();
     app.billing_poll_wanted = true;
     dispatch_billing(&mut app, Some(test_bal(50.0)), true, None);
     assert!(
         !app.billing_poll_wanted,
-        "usage < 99% should disable billing polling"
+        "billing fetch must clear any stale poll flag"
     );
 }
 
@@ -1524,4 +1520,134 @@ fn billing_error_surfaces_in_usage_modal_without_scrollback() {
     assert!(!state.billing_loading);
     assert_eq!(state.billing_error.as_deref(), Some("billing boom"));
     assert_eq!(agent_scrollback_len(&app), before);
+}
+
+// ── Alt+Q usage-quota refresh + 1-minute cache ─────────────────────
+
+#[test]
+fn refresh_usage_quota_fetches_when_cache_empty() {
+    let mut app = test_app_with_agent();
+    assert!(app.billing_fetched_at.is_none());
+    assert!(!app.billing_fetch_in_flight);
+    let effects = dispatch(Action::RefreshUsageQuota, &mut app);
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::FetchBilling {
+                agent_id,
+                silent: true,
+                ..
+            }] if *agent_id == AgentId(0)
+        ),
+        "first Alt+Q should hit the endpoint silently, got {effects:?}"
+    );
+    assert!(
+        app.billing_fetch_in_flight,
+        "in-flight flag must be set while the fetch is pending"
+    );
+    // Prompt info line reads this flag via AppRenderParams → quota_chip_for_prompt.
+    // `billing_surface_visible` mirrors `usage_visible` on real agents; force it
+    // here so the chip path matches the Alt+Q-eligible surface.
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    agent.set_billing_surface_visible(true);
+    assert_eq!(
+        crate::views::credit_bar::quota_chip_for_prompt(
+            agent.billing_surface_visible,
+            agent.chat_kind,
+            app.billing_fetch_in_flight,
+            agent.credit_balance.as_ref(),
+        )
+        .as_deref(),
+        Some("refreshing..."),
+        "info-line chip must show refreshing while Alt+Q fetch is in flight"
+    );
+}
+
+#[test]
+fn refresh_usage_quota_skips_when_cache_warm() {
+    let mut app = test_app_with_agent();
+    // Simulate a successful fetch just now.
+    app.billing_fetched_at = Some(std::time::Instant::now());
+    app.credit_balance = Some(test_bal(10.0));
+    let effects = dispatch(Action::RefreshUsageQuota, &mut app);
+    assert!(
+        effects.is_empty(),
+        "warm cache must not re-hit the endpoint, got {effects:?}"
+    );
+    assert!(!app.billing_fetch_in_flight);
+}
+
+#[test]
+fn refresh_usage_quota_skips_when_fetch_in_flight() {
+    let mut app = test_app_with_agent();
+    app.billing_fetch_in_flight = true;
+    let effects = dispatch(Action::RefreshUsageQuota, &mut app);
+    assert!(
+        effects.is_empty(),
+        "in-flight fetch must not stack another request, got {effects:?}"
+    );
+}
+
+#[test]
+fn refresh_usage_quota_no_op_when_usage_hidden() {
+    let mut app = test_app_with_agent();
+    app.usage_visible = false;
+    let effects = dispatch(Action::RefreshUsageQuota, &mut app);
+    assert!(effects.is_empty());
+}
+
+#[test]
+fn billing_fetched_marks_cache_and_clears_in_flight() {
+    let mut app = test_app_with_agent();
+    app.billing_fetch_in_flight = true;
+    dispatch_billing(&mut app, Some(test_bal(12.0)), true, None);
+    assert!(!app.billing_fetch_in_flight);
+    assert!(
+        app.billing_fetched_at.is_some(),
+        "successful fetch must stamp the cache clock"
+    );
+    assert_eq!(
+        app.credit_balance.as_ref().map(|b| b.usage_pct),
+        Some(12.0)
+    );
+    // After success the chip leaves "refreshing..." and shows the cached balance.
+    let agent = app.agents.get(&AgentId(0)).unwrap();
+    let chip = crate::views::credit_bar::quota_chip_for_prompt(
+        true, // surface visible for the assertion
+        agent.chat_kind,
+        app.billing_fetch_in_flight,
+        app.credit_balance.as_ref(),
+    );
+    assert!(
+        chip.as_deref().is_some_and(|s| s.starts_with("12%")),
+        "post-fetch chip should show cached balance, got {chip:?}"
+    );
+}
+
+#[test]
+fn billing_error_clears_refreshing_chip_without_advancing_cache() {
+    let mut app = test_app_with_agent();
+    app.billing_fetch_in_flight = true;
+    // Silent error (Alt+Q path): clear in-flight, no scrollback, no cache stamp.
+    dispatch(
+        Action::TaskComplete(TaskResult::BillingError {
+            agent_id: AgentId(0),
+            error: "network".into(),
+            silent: true,
+            nonce: 0,
+        }),
+        &mut app,
+    );
+    assert!(!app.billing_fetch_in_flight);
+    assert!(app.billing_fetched_at.is_none());
+    assert_eq!(
+        crate::views::credit_bar::quota_chip_for_prompt(
+            true,
+            false,
+            app.billing_fetch_in_flight,
+            app.credit_balance.as_ref(),
+        ),
+        None,
+        "silent failure must clear refreshing... without inventing a chip"
+    );
 }

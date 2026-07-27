@@ -136,7 +136,7 @@ This enforcement is independent of the permission mode:
 - Bash commands are not inspected for file writes — plan mode blocks the edit tools, not shell redirection.
 - Subagents are not covered by the parent session's plan-mode edit gate. Each subagent starts with a fresh plan-mode tracker (`Inactive`), so a `general-purpose` (or other write-capable) subagent can edit files while the parent is still in plan mode — and it inherits the parent's permission mode (including always-approve). Read-only types such as `explore` remain limited by their own toolset.
 
-The status flag shows `plan` while plan mode is active. If always-approve is enabled underneath, its flag reappears when plan mode exits.
+The status flag shows `plan` while plan mode is active. Always-approve is not shown on the prompt info line (it is often left on permanently); plan and auto mode flags still appear when active.
 
 ---
 

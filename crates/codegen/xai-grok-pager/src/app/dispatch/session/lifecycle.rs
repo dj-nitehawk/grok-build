@@ -1106,11 +1106,7 @@ pub(in crate::app::dispatch) fn handle_session_created(
                 session_id: session_id_clone.clone(),
             });
         }
-        effects.push(Effect::FetchBilling {
-            agent_id,
-            silent: true,
-            nonce: 0,
-        });
+        // Usage quota is refreshed only via Alt+Q (1-minute cache).
         if let Some(switch) = deferred {
             effects.push(Effect::SwitchModel {
                 agent_id,
@@ -1214,11 +1210,7 @@ pub(in crate::app::dispatch) fn handle_worktree_session_created(
                 session_id: session_id_clone.clone(),
             });
         }
-        effects.push(Effect::FetchBilling {
-            agent_id,
-            silent: true,
-            nonce: 0,
-        });
+        // Usage quota is refreshed only via Alt+Q (1-minute cache).
         if let Some(switch) = deferred {
             effects.push(Effect::SwitchModel {
                 agent_id,
