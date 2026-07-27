@@ -137,7 +137,7 @@ fn session_created_sets_session_id() {
         }),
         &mut app,
     );
-    assert_eq!(effects.len(), 7);
+    assert_eq!(effects.len(), 6);
     assert!(matches!(
         &effects[0],
         Effect::FetchPromptHistory { session_id, .. } if session_id == "new-session-123"
@@ -152,11 +152,11 @@ fn session_created_sets_session_id() {
         Effect::CheckMarketplaceUpdates { .. }
     ));
     assert!(matches!(&effects[4], Effect::FetchPluginCtaCatalog { .. }));
-    assert!(matches!(
-        &effects[5],
-        Effect::FetchBilling { silent: true, .. }
-    ));
-    assert!(matches!(&effects[6], Effect::RegisterActiveSession { .. }));
+    assert!(matches!(&effects[5], Effect::RegisterActiveSession { .. }));
+    assert!(
+        !effects.iter().any(|e| matches!(e, Effect::FetchBilling { .. })),
+        "no auto billing on session create, got {effects:?}"
+    );
     assert_eq!(
         app.agents[&id]
             .session
@@ -316,9 +316,10 @@ fn worktree_session_created_sets_session_and_cwd() {
             .any(|e| matches!(e, Effect::FetchSessionAgentName { .. }))
     );
     assert!(
-        effects
+        !effects
             .iter()
-            .any(|e| matches!(e, Effect::FetchBilling { silent: true, .. }))
+            .any(|e| matches!(e, Effect::FetchBilling { .. })),
+        "no auto billing on session create, got {effects:?}"
     );
     assert!(
         effects

@@ -703,6 +703,8 @@ fn render_prompt_info(
         }
         let effective_plan =
             minimal_api::plan_mode_pending(agent).unwrap_or(minimal_api::plan_mode_active(agent));
+        // Build the same candidate set as the full TUI, then apply the shared
+        // fork filter (drops always-approve; see credit_bar).
         let mode_flag: Option<(&str, Color)> = if effective_plan {
             Some(("plan", theme.accent_plan))
         } else if agent.session.is_yolo() {
@@ -712,7 +714,11 @@ fn render_prompt_info(
         } else {
             None
         };
-        if let Some((label, color)) = mode_flag {
+        if let Some((label, color)) = mode_flag
+            .filter(|(label, _)| {
+                xai_grok_pager::views::credit_bar::keep_info_line_mode_flag(label)
+            })
+        {
             segs.push((label.to_string(), base.fg(color)));
         }
         let used = agent.context_state.as_ref().map(|c| c.used);
@@ -1174,7 +1180,14 @@ mod tests {
         minimal_api::set_yolo_mode_for_test(&mut a.session, true);
         minimal_api::set_auto_mode_for_test(&mut a.session, true);
         let text = render(&a);
-        assert!(text.contains("always-approve"), "yolo flag: {text:?}");
+        assert!(
+            !text.contains("always-approve"),
+            "always-approve is omitted from the info line: {text:?}"
+        );
+        assert!(
+            !text.contains("auto"),
+            "auto is suppressed while yolo wins: {text:?}"
+        );
         minimal_api::set_yolo_mode_for_test(&mut a.session, false);
         let text = render(&a);
         assert!(text.contains("auto"), "auto flag: {text:?}");
