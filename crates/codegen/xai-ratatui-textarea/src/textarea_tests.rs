@@ -344,6 +344,11 @@ fn is_undo_input_rejects_redo_and_plain_z() {
         KeyCode::Char('Z'),
         KeyModifiers::CONTROL | KeyModifiers::SHIFT
     )));
+    // Lowercase z + Ctrl+Shift is the key!-style redo chord — must not undo.
+    assert!(!is_undo_input(&KeyEvent::new(
+        KeyCode::Char('z'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT
+    )));
     // A bare 'z' (no chord modifier) is plain typing, not undo.
     assert!(!is_undo_input(&KeyEvent::new(
         KeyCode::Char('z'),
@@ -352,6 +357,32 @@ fn is_undo_input_rejects_redo_and_plain_z() {
     assert!(!is_undo_input(&KeyEvent::new(
         KeyCode::Char('z'),
         KeyModifiers::SHIFT
+    )));
+}
+
+#[test]
+fn is_redo_input_accepts_shift_z_chords() {
+    assert!(is_redo_input(&KeyEvent::new(
+        KeyCode::Char('z'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT
+    )));
+    assert!(is_redo_input(&KeyEvent::new(
+        KeyCode::Char('Z'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT
+    )));
+    // Uppercase Z may omit the SHIFT bit on some terminals.
+    assert!(is_redo_input(&KeyEvent::new(
+        KeyCode::Char('Z'),
+        KeyModifiers::CONTROL
+    )));
+    assert!(is_redo_input(&KeyEvent::new(
+        KeyCode::Char('z'),
+        KeyModifiers::SUPER | KeyModifiers::SHIFT
+    )));
+    // Lowercase z without Shift → undo, not redo.
+    assert!(!is_redo_input(&KeyEvent::new(
+        KeyCode::Char('z'),
+        KeyModifiers::CONTROL
     )));
 }
 
