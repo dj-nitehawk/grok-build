@@ -329,14 +329,38 @@ impl Default for UndoState {
     }
 }
 
-/// Whether `key` is the undo chord [`TextArea::input`] binds: 'z' with Ctrl or Cmd and no Shift.
-/// Ctrl+Shift+Z is redo, so leaving Shift out keeps undo and redo from matching the same key press.
-/// `input()`'s undo arm and hosts that react to undo (retiring an undo hint, for example) both call this, so the chord is written once.
+/// Whether `key` is the undo chord [`TextArea::input`] binds: lowercase
+/// 'z' with Ctrl or Cmd and **without** Shift. Shift+Z is redo (see
+/// [`is_redo_input`]); uppercase 'Z' alone is also excluded so this guard
+/// stays disjoint from the redo arm regardless of match order.
+///
+/// Single source for the binding: `input()`'s undo arm consumes this
+/// predicate, and hosts that react to undo (e.g. retiring an undo hint)
+/// call it too, so the chord and its observers cannot drift.
 pub fn is_undo_input(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('z'))
         && !key.modifiers.contains(KeyModifiers::SHIFT)
         && (key.modifiers.contains(KeyModifiers::CONTROL)
             || key.modifiers.contains(KeyModifiers::SUPER))
+}
+
+/// Whether `key` is the redo chord: Ctrl/Cmd+Shift+Z.
+///
+/// Terminals and test helpers disagree on encoding:
+/// - `Char('Z')` + CONTROL (SHIFT bit may be absent; case implies Shift)
+/// - `Char('z')` + CONTROL|SHIFT (pager `key!` lowercases chorded letters)
+/// Both must redo. Ctrl/Cmd+z without Shift is undo ([`is_undo_input`]).
+pub fn is_redo_input(key: &KeyEvent) -> bool {
+    let chord = key.modifiers.contains(KeyModifiers::CONTROL)
+        || key.modifiers.contains(KeyModifiers::SUPER);
+    if !chord {
+        return false;
+    }
+    match key.code {
+        KeyCode::Char('Z') => true,
+        KeyCode::Char('z') => key.modifiers.contains(KeyModifiers::SHIFT),
+        _ => false,
+    }
 }
 
 impl TextArea {
@@ -2020,16 +2044,9 @@ impl TextArea {
                 self.yank();
             }
 
-            // Undo / Redo (Ctrl or Cmd)
-            // Terminals speaking the kitty keyboard protocol send Ctrl+Shift+Z as a lowercase 'z' with the Shift flag set.
-            // Older terminals send an uppercase 'Z' for the same chord.
-            KeyEvent {
-                code: KeyCode::Char(c @ ('z' | 'Z')),
-                modifiers,
-                ..
-            } if modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER)
-                && (c == 'Z' || modifiers.contains(KeyModifiers::SHIFT)) =>
-            {
+            // Undo / Redo (Ctrl or Cmd). Redo before undo so Shift+Z never
+            // falls into the undo predicate (which only requires CONTROL).
+            k if is_redo_input(&k) => {
                 self.redo();
             }
             // Alt+Z is the redo chord on terminals where Ctrl+Shift+Z arrives as the same bytes as Ctrl+Z.

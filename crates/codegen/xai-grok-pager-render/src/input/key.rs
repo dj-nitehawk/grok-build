@@ -588,10 +588,7 @@ mod tests {
     fn bare_shift_letter_still_normalizes() {
         let shift_g = key!('G');
         assert!(shift_g.matches(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)));
-        assert!(shift_g.matches(&KeyEvent::new(
-            KeyCode::Char('g'),
-            KeyModifiers::SHIFT
-        )));
+        assert!(shift_g.matches(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::SHIFT)));
         assert!(!shift_g.matches(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)));
     }
 
