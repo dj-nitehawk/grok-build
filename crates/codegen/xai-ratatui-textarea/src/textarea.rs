@@ -340,16 +340,37 @@ impl Default for UndoState {
 }
 
 /// Whether `key` is the undo chord [`TextArea::input`] binds: lowercase
-/// 'z' with Ctrl or Cmd. Uppercase 'Z' (redo) is intentionally excluded,
-/// which keeps this guard disjoint from the redo arm regardless of order.
+/// 'z' with Ctrl or Cmd and **without** Shift. Shift+Z is redo (see
+/// [`is_redo_input`]); uppercase 'Z' alone is also excluded so this guard
+/// stays disjoint from the redo arm regardless of match order.
 ///
 /// Single source for the binding: `input()`'s undo arm consumes this
 /// predicate, and hosts that react to undo (e.g. retiring an undo hint)
 /// call it too, so the chord and its observers cannot drift.
 pub fn is_undo_input(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('z'))
+        && !key.modifiers.contains(KeyModifiers::SHIFT)
         && (key.modifiers.contains(KeyModifiers::CONTROL)
             || key.modifiers.contains(KeyModifiers::SUPER))
+}
+
+/// Whether `key` is the redo chord: Ctrl/Cmd+Shift+Z.
+///
+/// Terminals and test helpers disagree on encoding:
+/// - `Char('Z')` + CONTROL (SHIFT bit may be absent; case implies Shift)
+/// - `Char('z')` + CONTROL|SHIFT (pager `key!` lowercases chorded letters)
+/// Both must redo. Ctrl/Cmd+z without Shift is undo ([`is_undo_input`]).
+pub fn is_redo_input(key: &KeyEvent) -> bool {
+    let chord = key.modifiers.contains(KeyModifiers::CONTROL)
+        || key.modifiers.contains(KeyModifiers::SUPER);
+    if !chord {
+        return false;
+    }
+    match key.code {
+        KeyCode::Char('Z') => true,
+        KeyCode::Char('z') => key.modifiers.contains(KeyModifiers::SHIFT),
+        _ => false,
+    }
 }
 
 impl TextArea {
@@ -2118,15 +2139,9 @@ impl TextArea {
                 self.yank();
             }
 
-            // Undo / Redo (Ctrl or Cmd)
-            KeyEvent {
-                code: KeyCode::Char('Z'),
-                modifiers,
-                ..
-            } if modifiers.contains(KeyModifiers::CONTROL)
-                || modifiers.contains(KeyModifiers::SUPER) =>
-            {
-                // Ctrl/Cmd-Shift-Z → redo (terminals that report uppercase Z + Shift)
+            // Undo / Redo (Ctrl or Cmd). Redo before undo so Shift+Z never
+            // falls into the undo predicate (which only requires CONTROL).
+            k if is_redo_input(&k) => {
                 self.redo();
             }
             k if is_undo_input(&k) => {
