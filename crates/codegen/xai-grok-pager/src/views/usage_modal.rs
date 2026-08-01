@@ -1058,6 +1058,7 @@ mod tests {
             usage_pct: 50.67,
             effective_usage_pct: 50.67,
             period_end_display: Some("May 29, 00:00".to_string()),
+            period_end: None,
             pay_as_you_go: true,
             on_demand_cap_cents: Some(10_000),
             on_demand_used_cents: Some(0),

@@ -174,15 +174,24 @@ pub struct ConnectFlags {
 }
 
 /// Connect to an agent: spawn, initialize, authenticate.
-pub async fn connect(cancel: &CancellationToken, flags: ConnectFlags) -> Result<AcpConnection> {
+///
+/// This is the main entry point for establishing an ACP connection.
+/// After this returns, the agent is ready to create sessions and receive prompts.
+///
+/// `raw_config` is the effective config already loaded by the caller (same
+/// snapshot used for leader mode / connect flags). Avoids a redundant disk
+/// reload on the TUI connect path.
+pub async fn connect(
+    cancel: &CancellationToken,
+    flags: ConnectFlags,
+    raw_config: &toml::Value,
+) -> Result<AcpConnection> {
     startup::enter(StartupPhase::LoadConfig);
-    let raw_config = xai_grok_shell::config::load_effective_config()
-        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
-    let mut agent_config = AgentConfig::new_from_toml_cfg(&raw_config)
+    let mut agent_config = AgentConfig::new_from_toml_cfg(raw_config)
         .map_err(|e| anyhow::anyhow!("Failed to create agent config: {}", e))?;
 
     agent_config.resolve_runtime_fields(&xai_grok_shell::agent::config::RuntimeResolutionContext {
-        raw_config: &raw_config,
+        raw_config,
         remote_settings: flags.remote_settings.as_ref(),
         is_headless: false,
         cli_subagents: Some(flags.subagents),
