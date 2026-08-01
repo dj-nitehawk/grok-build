@@ -1426,6 +1426,29 @@ impl FinalizedToolset {
             .map(|t| t.definition.clone())
             .collect()
     }
+    /// Built-ins plus registered MCP tools whose client names are in
+    /// `promoted_qualified` (fully-qualified `server__tool` names).
+    ///
+    /// Empty `promoted_qualified` is equivalent to
+    /// [`Self::tool_definitions_builtins_only`]. Order: builtins first, then
+    /// promoted MCP defs in registry order. Does not alter dispatch; tools
+    /// must already be registered.
+    pub fn tool_definitions_with_promoted_mcp(
+        &self,
+        promoted_qualified: &std::collections::HashSet<String>,
+    ) -> Vec<ToolDefinition> {
+        if promoted_qualified.is_empty() {
+            return self.tool_definitions_builtins_only();
+        }
+        self.tools
+            .read()
+            .iter()
+            .filter(|t| {
+                !t.client_name.contains("__") || promoted_qualified.contains(&t.client_name)
+            })
+            .map(|t| t.definition.clone())
+            .collect()
+    }
     /// Get the resolved contract version for a tool by its client-facing name.
     ///
     /// Returns `None` if the tool is not found or is not version-managed.
@@ -3669,6 +3692,66 @@ mod tests {
                 def.function.name
             );
         }
+    }
+
+    #[tokio::test]
+    async fn tool_definitions_with_promoted_mcp_selects_by_qualified_name() {
+        let tmp = TempDir::new().unwrap();
+        let builder = ToolRegistryBuilder::new();
+        let config = ToolServerConfig {
+            tools: vec![
+                ToolConfig::for_tool::<grok_build::ReadFileTool>(),
+                ToolConfig::for_tool::<grok_build::GrepTool>(),
+            ],
+            behavior_preset: None,
+        };
+        let ctx = test_session_context(&tmp);
+        let toolset = builder.finalize(config, ctx).unwrap();
+        toolset
+            .register_tool(
+                "linear__save_issue".to_string(),
+                FakeMcpTool {
+                    description: "Create or update a Linear issue".into(),
+                },
+                Some(serde_json::json!({"type": "object", "properties": {}})),
+            )
+            .unwrap();
+        toolset
+            .register_tool(
+                "linear__list_issues".to_string(),
+                FakeMcpTool {
+                    description: "List Linear issues".into(),
+                },
+                Some(serde_json::json!({"type": "object", "properties": {}})),
+            )
+            .unwrap();
+        toolset
+            .register_tool(
+                "github__create_issue".to_string(),
+                FakeMcpTool {
+                    description: "Create a GitHub issue".into(),
+                },
+                Some(serde_json::json!({"type": "object", "properties": {}})),
+            )
+            .unwrap();
+
+        // Default: empty promote set == builtins only.
+        let empty = toolset.tool_definitions_with_promoted_mcp(&std::collections::HashSet::new());
+        assert_eq!(empty.len(), 2);
+        assert!(empty.iter().all(|d| !d.function.name.contains("__")));
+
+        let mut promote = std::collections::HashSet::new();
+        promote.insert("linear__save_issue".to_string());
+        promote.insert("missing__not_registered".to_string());
+        let defs = toolset.tool_definitions_with_promoted_mcp(&promote);
+        let names: std::collections::HashSet<_> =
+            defs.iter().map(|d| d.function.name.as_str()).collect();
+        assert!(names.contains("linear__save_issue"));
+        assert!(!names.contains("linear__list_issues"));
+        assert!(!names.contains("github__create_issue"));
+        assert!(!names.contains("missing__not_registered"));
+        // Builtins still present.
+        assert_eq!(names.len(), 3);
     }
     /// `task` tool must be rejected when neither `get_task_output` nor
     /// `kill_task` are present in the toolset.
