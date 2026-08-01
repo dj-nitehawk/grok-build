@@ -189,6 +189,107 @@ pub(super) fn capture_startup_typeahead(poll_timeout: Duration) -> Vec<TimedInpu
     }
     captured
 }
+
+/// Drain stdin while the connecting frame is up.
+///
+/// Mouse capture is already on, and prefetch plus ACP connect can sit for
+/// seconds. The kernel tty queue is small (4096 bytes on Linux) and drops the
+/// newest input once full, so a single drain after connect loses keystrokes
+/// that arrived behind a mouse flood. This thread reads throughout that window,
+/// discards mouse, focus, and resize immediately, and keeps keys and pastes.
+/// Resize does not need to be replayed: the next draw queries the terminal size.
+pub(super) struct FrozenFrameInput {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<Vec<Event>>>,
+}
+
+impl FrozenFrameInput {
+    pub(super) fn start() -> Self {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&stop);
+        let handle = std::thread::spawn(move || {
+            const MAX_STORED: usize = 4096;
+            let mut stored = Vec::new();
+            let mut stopping = false;
+            loop {
+                if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    stopping = true;
+                }
+                let woke = if stopping {
+                    false
+                } else {
+                    match crossterm::event::poll(Duration::from_millis(15)) {
+                        Ok(ready) => ready,
+                        Err(_) => {
+                            // A failed poll must not spin. Startup can run without a tty.
+                            std::thread::sleep(Duration::from_millis(15));
+                            false
+                        }
+                    }
+                };
+                if !woke && stopping {
+                    break;
+                }
+                if !woke {
+                    continue;
+                }
+                while crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
+                    let Ok(event) = crossterm::event::read() else {
+                        break;
+                    };
+                    if stored.len() < MAX_STORED && frozen_frame_event_worth_keeping(&event) {
+                        stored.push(event);
+                    }
+                }
+            }
+            while crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
+                let Ok(event) = crossterm::event::read() else {
+                    break;
+                };
+                if stored.len() < MAX_STORED && frozen_frame_event_worth_keeping(&event) {
+                    stored.push(event);
+                }
+            }
+            stored
+        });
+        Self {
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    pub(super) fn finish(mut self) -> Vec<TimedInputEvent> {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let stored = self
+            .handle
+            .take()
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_default();
+        select_frozen_frame_typeahead(stored)
+    }
+}
+
+impl Drop for FrozenFrameInput {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn frozen_frame_event_worth_keeping(event: &Event) -> bool {
+    matches!(event, Event::Key(_) | Event::Paste(_))
+}
+
+fn select_frozen_frame_typeahead(events: Vec<Event>) -> Vec<TimedInputEvent> {
+    filter_startup_typeahead(
+        events
+            .into_iter()
+            .map(|event| TimedInputEvent::now(normalize_startup_event(event)))
+            .collect(),
+    )
+}
 /// Replay captured startup type-ahead into the input channel, in order, before the reader thread starts, so it lands ahead of live keystrokes.
 /// Drains `pending` and logs the count (no contents).
 fn replay_startup_typeahead(
@@ -1044,6 +1145,11 @@ pub(crate) async fn run(
     >,
     mut writer_event_rx: tokio::sync::mpsc::UnboundedReceiver<WriterEvent>,
     reader_thread: &mut ReaderThread,
+    // Effective config already loaded by `app::run` (post-remote). When set,
+    // AppInit skips redundant `load_effective_config` merges. Layers travel
+    // with that snapshot so feature pins do not force a second merge.
+    preloaded_layers: Option<xai_grok_shell::config::EffectiveConfigLayers>,
+    preloaded_config: Option<toml::Value>,
 ) -> anyhow::Result<RunResult> {
     crate::unified_log::init(connection.tx.clone());
     crate::unified_log::info("pager started", None, None);
@@ -1090,13 +1196,18 @@ pub(crate) async fn run(
     if launch_auto {
         app.current_ui.permission_mode = Some("auto".into());
     }
+    // Prefer the preloaded post-remote snapshot (no second disk merge).
+    // Full root is kept for plugin-CTA marketplace (not just `[ui]`).
     let launch_effective_config = {
         let _t = xai_grok_telemetry::instrumentation::timer("startup.app_init.launch_config");
-        xai_grok_shell::config::load_effective_config().ok()
+        preloaded_config
+            .clone()
+            .or_else(|| xai_grok_shell::config::load_effective_config().ok())
     };
     let launch_effective_ui = launch_effective_config
         .as_ref()
-        .and_then(|root| root.get("ui").cloned());
+        .and_then(crate::app::startup::ui_table_from_effective);
+    // Soft-default owns the mode only when neither CLI nor effective TOML claimed it; while owned, `settings/update` pushes may re-arm it
     let cli_owns_mode = args.yolo || args.permission_mode_flag.is_some();
     let toml_owns_mode = launch_effective_ui
         .as_ref()
@@ -1215,6 +1326,11 @@ pub(crate) async fn run(
             _ => None,
         })
         .or_else(|| {
+            preloaded_config.as_ref().and_then(|cfg| {
+                crate::app::startup::cli_bool_from_effective(cfg, "session_picker_grouped")
+            })
+        })
+        .or_else(|| {
             xai_grok_shell::config::load_effective_config()
                 .ok()
                 .and_then(|cfg| cfg.get("cli")?.get("session_picker_grouped")?.as_bool())
@@ -1325,14 +1441,31 @@ pub(crate) async fn run(
     let requirements = xai_grok_shell::config::load_merged_requirements();
     let user_config = xai_grok_shell::config::load_from_disk().ok();
     let managed_config = xai_grok_shell::config::load_managed_config().ok();
+    // Prefer the caller's post-remote snapshot (already merged in `app::run`).
+    // Layers come with that snapshot so `subagent_model_inheritance` does not
+    // pay for a second merge.
     let (config_layers, effective_config) = {
         let _t = xai_grok_telemetry::instrumentation::timer("startup.app_init.effective_config");
-        match xai_grok_shell::config::load_effective_config_with_layers() {
-            Ok((layers, raw)) => (Some(layers), Some(raw)),
-            Err(e) => {
-                tracing::debug!(error = %e, "failed to load effective config, using partial layers");
-                (None, None)
+        match (preloaded_config, preloaded_layers) {
+            (Some(raw), layers) => {
+                let layers = match layers {
+                    Some(layers) => Some(layers),
+                    None => xai_grok_shell::config::load_effective_config_with_layers()
+                        .ok()
+                        .map(|(layers, _)| layers),
+                };
+                (layers, Some(raw))
             }
+            (None, _) => match xai_grok_shell::config::load_effective_config_with_layers() {
+                Ok((layers, raw)) => (Some(layers), Some(raw)),
+                Err(e) => {
+                    tracing::debug!(
+                        error = %e,
+                        "failed to load effective config, using partial layers"
+                    );
+                    (None, None)
+                }
+            },
         }
     };
     let compat = xai_grok_shell::agent::config::resolve_compat_sessions_from_raw(
@@ -1523,8 +1656,18 @@ pub(crate) async fn run(
     let tick_interval = initial_config.animation.tick_interval();
     crate::appearance::set_tab_width(initial_config.scrollback.display.tab_width);
     app.set_appearance(initial_config);
-    app.current_ui = load_initial_ui_config();
+
+    // Seed app state from the preloaded snapshot (or disk once) at the I/O boundary so dispatch stays sans-IO.
+    app.current_ui = match effective_config.as_ref() {
+        Some(root) => crate::app::startup::ui_config_from_effective(root),
+        None => load_initial_ui_config(),
+    };
+    // Here rather than from the row's own update: that runs only once an agent view is on screen.
+    // A welcome-only session would otherwise be missing from the denominator adoption is measured against.
     crate::app::status_line::metrics::global().report_config(&app.current_ui.status_line);
+    // Field-tolerant: a whole-`UiConfig` default (malformed unrelated `[ui]` field) must not wipe a valid `show_timeline`.
+    // Nor may it leave appearance / cache / `current_ui` disagreeing.
+    // `/timeline` and the rail all read the same canonical value after this sync and the `prime` below.
     let show_timeline = crate::appearance::cache::load_show_timeline();
     app.current_ui.show_timeline = Some(show_timeline);
     if app.appearance.show_timeline != show_timeline {
@@ -1592,7 +1735,7 @@ pub(crate) async fn run(
             "note": "the toggle chord is scrollback-only; press Tab to focus scrollback first, or use /toggle-mouse-reporting from anywhere",
         })),
     );
-    let config_session_bools = load_initial_config_session_bools();
+    let config_session_bools = load_initial_config_session_bools(effective_config.as_ref());
     app.show_tips = config_session_bools.show_tips;
     app.auto_update = config_session_bools.auto_update;
     app.ask_user_question_timeout_enabled = config_session_bools.ask_user_question_timeout_enabled;
@@ -2964,11 +3107,21 @@ struct InitialConfigSessionBools {
     auto_update: Option<bool>,
     ask_user_question_timeout_enabled: Option<bool>,
 }
-fn load_initial_config_session_bools() -> InitialConfigSessionBools {
-    let Ok(root) = xai_grok_shell::config::load_effective_config() else {
-        return InitialConfigSessionBools::default();
+
+fn load_initial_config_session_bools(preloaded: Option<&toml::Value>) -> InitialConfigSessionBools {
+    let owned;
+    let root = match preloaded {
+        Some(r) => r,
+        None => {
+            owned = match xai_grok_shell::config::load_effective_config() {
+                Ok(r) => r,
+                Err(_) => return InitialConfigSessionBools::default(),
+            };
+            &owned
+        }
     };
-    let cli_bool = |key: &str| -> Option<bool> { root.get("cli")?.get(key)?.as_bool() };
+    let cli_bool =
+        |key: &str| -> Option<bool> { crate::app::startup::cli_bool_from_effective(root, key) };
     InitialConfigSessionBools {
         show_tips: cli_bool("show_tips"),
         auto_update: cli_bool("auto_update"),
@@ -4130,6 +4283,34 @@ mod tests {
         })));
     }
     #[test]
+    fn frozen_frame_typeahead_keeps_typing_and_drops_noise() {
+        use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let events = vec![
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            Event::Resize(100, 40),
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 1,
+                row: 1,
+                modifiers: KeyModifiers::NONE,
+            }),
+            Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+        ];
+        let chars: String = select_frozen_frame_typeahead(events)
+            .into_iter()
+            .filter_map(|event| match event.event {
+                Event::Key(key) => match key.code {
+                    KeyCode::Char(character) => Some(character),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(chars, "hi");
+    }
+
     fn filter_startup_typeahead_preserves_order_and_truncates_at_escape() {
         let timed = |code: KeyCode| {
             TimedInputEvent::now(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
