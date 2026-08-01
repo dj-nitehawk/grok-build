@@ -103,6 +103,7 @@ pub const KNOWN_MCP_SERVER_FIELDS: &[&str] = &[
     "oauth_client_id",
     "oauth_client_secret_env_var",
     "oauth_scopes",
+    "promote_tools",
     "setup",
     "startup_timeout_sec",
     "tool_timeout_sec",
@@ -234,6 +235,15 @@ pub struct McpServerConfig {
     /// ~2× tokens per image. Overridden by `_meta.mcpConfig.<server>.exposeImageBase64`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expose_image_base64: Option<bool>,
+    /// MCP tools to promote into the model-facing sampling tool list as
+    /// first-class tools (schemas included). Default is empty: MCP tools stay
+    /// behind `search_tool` / `use_tool`.
+    ///
+    /// Entries may be bare MCP tool ids (scoped to this server, e.g.
+    /// `create_issue` → `{server}__create_issue`) or fully-qualified
+    /// `server__tool` names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub promote_tools: Vec<String>,
 }
 
 impl McpServerConfig {
@@ -250,6 +260,40 @@ impl McpServerConfig {
             _ => None,
         }
     }
+
+    /// Expand [`Self::promote_tools`] into fully-qualified MCP client names
+    /// (`server__tool`) for sampling-tool filtering.
+    ///
+    /// Bare entries are scoped to `server_name`. Fully-qualified entries
+    /// (`contains "__"`) are kept as written. Empty/whitespace entries are dropped.
+    pub fn promoted_qualified_names<'a>(
+        &'a self,
+        server_name: &'a str,
+    ) -> impl Iterator<Item = String> + 'a {
+        self.promote_tools.iter().filter_map(move |entry| {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                return None;
+            }
+            if entry.contains("__") {
+                Some(entry.to_string())
+            } else {
+                Some(format!("{server_name}__{entry}"))
+            }
+        })
+    }
+}
+
+/// Collect fully-qualified MCP tool names promoted for sampling from a set of
+/// server configs. Empty when no server promotes anything (default).
+pub fn collect_promoted_mcp_tool_names<'a>(
+    servers: impl IntoIterator<Item = (&'a str, &'a McpServerConfig)>,
+) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for (name, cfg) in servers {
+        out.extend(cfg.promoted_qualified_names(name));
+    }
+    out
 }
 
 fn render_setup_template(
@@ -628,6 +672,7 @@ mod tests {
             tool_timeout_sec: Some(20),
             tool_timeouts: Some(HashMap::from([("t".into(), 1)])),
             expose_image_base64: Some(true),
+            promote_tools: vec!["create_issue".into()],
         };
         let http = McpServerConfig {
             transport: McpServerTransportConfig::StreamableHttp {
@@ -646,6 +691,7 @@ mod tests {
             tool_timeout_sec: None,
             tool_timeouts: None,
             expose_image_base64: None,
+            promote_tools: Vec::new(),
         };
         for config in [stdio, http] {
             let value = serde_json::to_value(&config).unwrap();
@@ -753,6 +799,7 @@ mod tests {
             tool_timeout_sec: None,
             tool_timeouts: None,
             expose_image_base64: None,
+            promote_tools: Vec::new(),
         };
         let prefs = McpServerPreferences {
             values: HashMap::from([("site".to_string(), "us5".to_string())]),
@@ -811,11 +858,44 @@ mod tests {
             tool_timeout_sec: None,
             tool_timeouts: None,
             expose_image_base64: None,
+            promote_tools: Vec::new(),
         };
         assert!(matches!(
             config.resolve_setup(None),
             McpSetupResolution::Invalid(_)
         ));
         assert!(config.to_acp_mcp_server("x").is_none());
+    }
+
+    #[test]
+    fn promote_tools_defaults_empty_and_expands_bare_or_qualified() {
+        let bare: McpServerConfig = serde_json::from_value(serde_json::json!({
+            "command": "npx",
+            "promote_tools": ["create_issue", " github__search ", "", "  "]
+        }))
+        .unwrap();
+        assert_eq!(
+            bare.promoted_qualified_names("github").collect::<Vec<_>>(),
+            vec!["github__create_issue", "github__search"]
+        );
+
+        let qualified: McpServerConfig = serde_json::from_value(serde_json::json!({
+            "url": "https://mcp.example.com/mcp",
+            "promote_tools": ["other__tool", "local_only"]
+        }))
+        .unwrap();
+        let names: std::collections::HashSet<_> =
+            qualified.promoted_qualified_names("myserver").collect();
+        assert!(names.contains("other__tool"));
+        assert!(names.contains("myserver__local_only"));
+        assert!(!names.contains("local_only"));
+
+        let missing: McpServerConfig =
+            serde_json::from_value(serde_json::json!({ "command": "true" })).unwrap();
+        assert!(missing.promote_tools.is_empty());
+        assert_eq!(
+            collect_promoted_mcp_tool_names([("github", &bare), ("myserver", &qualified)]).len(),
+            4
+        );
     }
 }
