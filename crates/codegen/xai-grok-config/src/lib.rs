@@ -108,6 +108,7 @@ pub use mcp_server_config::{
     McpPreferenceSource, McpPreferencesFile, McpServerConfig, McpServerConfigProblem,
     McpServerPreferences, McpServerProblemSeverity, McpServerTransportConfig, McpSetupConfig,
     McpSetupDerivedValue, McpSetupField, McpSetupFieldType, McpSetupOption, McpSetupResolution,
+    collect_promoted_mcp_tool_names,
 };
 pub use memory_v2::{MemoryV2Rollout, MemoryV2Settings};
 pub use paths::{

@@ -91,6 +91,7 @@ pub const KNOWN_MCP_SERVER_FIELDS: &[&str] = &[
     "oauth_client_id",
     "oauth_client_secret_env_var",
     "oauth_scopes",
+    "promote_tools",
     "setup",
     "startup_timeout_sec",
     "tool_timeout_sec",
@@ -217,6 +218,15 @@ pub struct McpServerConfig {
     pub tool_timeouts: Option<HashMap<String, u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expose_image_base64: Option<bool>,
+    /// MCP tools to promote into the model-facing sampling tool list as
+    /// first-class tools (schemas included). Default is empty: MCP tools stay
+    /// behind `search_tool` / `use_tool`.
+    ///
+    /// Entries may be bare MCP tool ids (scoped to this server, e.g.
+    /// `create_issue` → `{server}__create_issue`) or fully-qualified
+    /// `server__tool` names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub promote_tools: Vec<String>,
 }
 
 impl McpServerConfig {
@@ -231,6 +241,40 @@ impl McpServerConfig {
             _ => None,
         }
     }
+
+    /// Expand [`Self::promote_tools`] into fully-qualified MCP client names
+    /// (`server__tool`) for sampling-tool filtering.
+    ///
+    /// Bare entries are scoped to `server_name`. Fully-qualified entries
+    /// (`contains "__"`) are kept as written. Empty/whitespace entries are dropped.
+    pub fn promoted_qualified_names<'a>(
+        &'a self,
+        server_name: &'a str,
+    ) -> impl Iterator<Item = String> + 'a {
+        self.promote_tools.iter().filter_map(move |entry| {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                return None;
+            }
+            if entry.contains("__") {
+                Some(entry.to_string())
+            } else {
+                Some(format!("{server_name}__{entry}"))
+            }
+        })
+    }
+}
+
+/// Collect fully-qualified MCP tool names promoted for sampling from a set of
+/// server configs. Empty when no server promotes anything (default).
+pub fn collect_promoted_mcp_tool_names<'a>(
+    servers: impl IntoIterator<Item = (&'a str, &'a McpServerConfig)>,
+) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for (name, cfg) in servers {
+        out.extend(cfg.promoted_qualified_names(name));
+    }
+    out
 }
 
 impl McpServerConfig {

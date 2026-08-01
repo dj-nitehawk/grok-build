@@ -46,6 +46,7 @@ fn known_mcp_server_fields_cover_serialized_keys() {
         tool_timeout_sec: Some(20),
         tool_timeouts: Some(HashMap::from([("t".into(), 1)])),
         expose_image_base64: Some(true),
+        promote_tools: vec!["create_issue".into()],
     };
     let http = McpServerConfig {
         transport: McpServerTransportConfig::StreamableHttp {
@@ -65,6 +66,7 @@ fn known_mcp_server_fields_cover_serialized_keys() {
         tool_timeout_sec: None,
         tool_timeouts: None,
         expose_image_base64: None,
+        promote_tools: Vec::new(),
     };
 
     for config in [stdio, http] {
@@ -311,6 +313,7 @@ fn http_server_with_setup(url: &str, setup: McpSetupConfig) -> McpServerConfig {
         tool_timeout_sec: None,
         tool_timeouts: None,
         expose_image_base64: None,
+        promote_tools: Vec::new(),
     }
 }
 
@@ -343,4 +346,36 @@ fn setup_templates_render_bearer_token_file() {
         panic!("expected http config");
     };
     assert_eq!(Some("/run/us1/token".to_owned()), bearer_token_file);
+}
+
+#[test]
+fn promote_tools_defaults_empty_and_expands_bare_or_qualified() {
+    let bare: McpServerConfig = serde_json::from_value(serde_json::json!({
+        "command": "npx",
+        "promote_tools": ["create_issue", " github__search ", "", "  "]
+    }))
+    .unwrap();
+    assert_eq!(
+        bare.promoted_qualified_names("github").collect::<Vec<_>>(),
+        vec!["github__create_issue", "github__search"]
+    );
+
+    let qualified: McpServerConfig = serde_json::from_value(serde_json::json!({
+        "url": "https://mcp.example.com/mcp",
+        "promote_tools": ["other__tool", "local_only"]
+    }))
+    .unwrap();
+    let names: std::collections::HashSet<_> =
+        qualified.promoted_qualified_names("myserver").collect();
+    assert!(names.contains("other__tool"));
+    assert!(names.contains("myserver__local_only"));
+    assert!(!names.contains("local_only"));
+
+    let missing: McpServerConfig =
+        serde_json::from_value(serde_json::json!({ "command": "true" })).unwrap();
+    assert!(missing.promote_tools.is_empty());
+    assert_eq!(
+        collect_promoted_mcp_tool_names([("github", &bare), ("myserver", &qualified)]).len(),
+        4
+    );
 }
