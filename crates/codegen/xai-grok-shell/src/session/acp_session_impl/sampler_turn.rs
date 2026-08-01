@@ -209,7 +209,18 @@ impl SessionActor {
     }
     pub(super) async fn prepare_tool_definitions_inner(&self) -> Vec<ToolDefinition> {
         let bridge = self.agent.borrow().tool_bridge().clone();
-        let defs = bridge.tool_definitions_builtins_only().await;
+        let mut defs = bridge.tool_definitions_builtins_only().await;
+        // Config-driven MCP promotion (default off). Thin switchboard; body in
+        // `session::mcp_promote` so the upstream builtins-only path stays intact.
+        let cwd = std::path::Path::new(self.session_info.cwd.as_str());
+        let promoted = crate::session::mcp_promote::promoted_tool_names_for_cwd(cwd);
+        if !promoted.is_empty() {
+            crate::session::mcp_promote::append_promoted_mcp_definitions(
+                bridge.tool_definitions().await,
+                &promoted,
+                &mut defs,
+            );
+        }
         let plan_active = self.plan_mode.lock().is_active();
         filter_cursor_tools_by_plan_mode(defs, plan_active)
     }
