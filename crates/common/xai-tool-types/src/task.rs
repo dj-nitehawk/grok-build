@@ -1086,23 +1086,46 @@ pub struct TaskToolNaming<'a> {
     pub isolation_param: &'a str,
 }
 
+/// How much detail [`build_task_description_with_detail`] embeds in the
+/// model-facing `task` / `spawn_subagent` tool description.
+///
+/// `Full` is the historical default (tool fragments + extended essays).
+/// `Concise` is the hybrid always-on form: type roster without tool laundry
+/// lists, short policy bullets, and a pointer to product docs for depth.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TaskDescriptionDetail {
+    /// Full roster with tool-access fragments and extended usage notes.
+    #[default]
+    Full,
+    /// Type names + short policy; omit tool lists and long essays.
+    Concise,
+}
+
 /// Build the `task` tool description from an effective subagent list.
 ///
-/// Assembles the canonical header, the agent roster, and the usage-notes
-/// footer, substituting the product-specific tool/parameter names from
-/// `naming`. Agent lines render as `- **{name}**: {description} {tools}` (the
-/// trailing tools fragment is omitted when [`SubagentDescriptor::tools`] is
-/// `None`, e.g. for user-defined agents).
+/// Equivalent to [`build_task_description_with_detail`] with
+/// [`TaskDescriptionDetail::Full`] so existing callers keep the historical
+/// verbose description.
 pub fn build_task_description(subagents: &[SubagentDescriptor], naming: &TaskToolNaming) -> String {
-    let agent_lines = subagents
-        .iter()
-        .map(|s| match &s.tools {
-            Some(tools) => format!("- **{}**: {} {}", s.name, s.description, tools),
-            None => format!("- **{}**: {}", s.name, s.description),
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    build_task_description_with_detail(subagents, naming, TaskDescriptionDetail::Full)
+}
 
+/// Build the `task` tool description at the requested detail level.
+///
+/// Assembles a header, the agent roster, and usage notes, substituting the
+/// product-specific tool/parameter names from `naming`.
+///
+/// - [`TaskDescriptionDetail::Full`]: agent lines are
+///   `- **{name}**: {description} {tools}` (tools fragment omitted when
+///   [`SubagentDescriptor::tools`] is `None`), plus extended usage notes.
+/// - [`TaskDescriptionDetail::Concise`]: agent lines are
+///   `- **{name}**: {description}` only, plus short policy bullets and a
+///   docs pointer for advanced patterns.
+pub fn build_task_description_with_detail(
+    subagents: &[SubagentDescriptor],
+    naming: &TaskToolNaming,
+    detail: TaskDescriptionDetail,
+) -> String {
     let TaskToolNaming {
         task_tool,
         subagent_type_param,
@@ -1112,24 +1135,59 @@ pub fn build_task_description(subagents: &[SubagentDescriptor], naming: &TaskToo
         isolation_param,
     } = *naming;
 
-    let out = format!(
-        "Start a subagent that works on a task independently and reports back.\n\n\
-         Agent types:\n\n\
-         {agent_lines}\n\n\
-         ## Usage notes\n\
-         - When the agent is done, it returns a single message with its agent ID. Use that ID to resume the agent later for follow-up work.\n\
-         - {run_in_background_param}: Returns immediately with a subagent_id. Use {background_retrieval_tool} to retrieve results. This is set to true by default.\n\
-         - Subagents receive a compacted version of project instructions (AGENTS.md). If the task requires detailed conventions (e.g., build rules, testing patterns), include the relevant rules directly in the prompt.\n\
-         - When using the {task_tool} tool, you must specify a {subagent_type_param} parameter to select which agent type to use.\n\
-         - When launching independent subagents, you MUST incorporate the results into the task based on requirements BEFORE concluding.\n\n\
-         Resuming a previous agent (resume_from):\n\
-         - Use {resume_from_param} to continue a previously completed subagent's conversation. Pass the subagent_id returned by a prior {task_tool} call. A resumed agent keeps its full transcript and tool state, so you only need to describe what changed since the last run — don't re-explain the original task.\n\
-         - The resumed agent must use the same subagent_type as the source.\n\n\
-         Isolation mode:\n\
-         - Use {isolation_param} to control the child's execution environment. With \"worktree\", the child runs in an isolated git worktree whose edits don't affect the parent workspace; the worktree is preserved after completion and its path is returned in the output."
-    );
+    match detail {
+        TaskDescriptionDetail::Full => {
+            let agent_lines = subagents
+                .iter()
+                .map(|s| match &s.tools {
+                    Some(tools) => format!("- **{}**: {} {}", s.name, s.description, tools),
+                    None => format!("- **{}**: {}", s.name, s.description),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
 
-    out
+            format!(
+                "Start a subagent that works on a task independently and reports back.\n\n\
+                 Agent types:\n\n\
+                 {agent_lines}\n\n\
+                 ## Usage notes\n\
+                 - When the agent is done, it returns a single message with its agent ID. Use that ID to resume the agent later for follow-up work.\n\
+                 - {run_in_background_param}: Returns immediately with a subagent_id. Use {background_retrieval_tool} to retrieve results. This is set to true by default.\n\
+                 - Subagents receive a compacted version of project instructions (AGENTS.md). If the task requires detailed conventions (e.g., build rules, testing patterns), include the relevant rules directly in the prompt.\n\
+                 - When using the {task_tool} tool, you must specify a {subagent_type_param} parameter to select which agent type to use.\n\
+                 - When launching independent subagents, you MUST incorporate the results into the task based on requirements BEFORE concluding.\n\n\
+                 Resuming a previous agent (resume_from):\n\
+                 - Use {resume_from_param} to continue a previously completed subagent's conversation. Pass the subagent_id returned by a prior {task_tool} call. A resumed agent keeps its full transcript and tool state, so you only need to describe what changed since the last run — don't re-explain the original task.\n\
+                 - The resumed agent must use the same subagent_type as the source.\n\n\
+                 Isolation mode:\n\
+                 - Use {isolation_param} to control the child's execution environment. With \"worktree\", the child runs in an isolated git worktree whose edits don't affect the parent workspace; the worktree is preserved after completion and its path is returned in the output."
+            )
+        }
+        TaskDescriptionDetail::Concise => {
+            let agent_lines = subagents
+                .iter()
+                .map(|s| format!("- **{}**: {}", s.name, s.description))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // `task_tool` is intentionally unused in Concise: the always-on
+            // text is short and the tool name is already known to the model.
+            let _ = task_tool;
+
+            format!(
+                "Start a subagent that works on a task independently and reports back.\n\n\
+                 Agent types:\n\
+                 {agent_lines}\n\n\
+                 Usage:\n\
+                 - Set {subagent_type_param} to pick a type (explore = research, plan = implementation plan, general-purpose = multi-step work).\n\
+                 - {run_in_background_param}: returns immediately with a subagent_id (default true). Use {background_retrieval_tool} for results.\n\
+                 - Subagents get compacted AGENTS.md; put critical conventions in the prompt.\n\
+                 - {resume_from_param}: continue a completed child (same {subagent_type_param}); pass only the delta since last run.\n\
+                 - {isolation_param}: \"none\" (shared workspace) or \"worktree\" (isolated git worktree).\n\
+                 - For custom agents, personas, advanced resume/worktree, and examples, read user-guide `16-subagents.md` when needed (not on every turn)."
+            )
+        }
+    }
 }
 
 /// Shared `background task or subagent`-style target suffix used by the
@@ -1549,6 +1607,68 @@ mod tests {
         );
         assert!(desc.contains("Isolation mode:"));
         assert!(desc.contains("Use isolation to control the child's execution environment."));
+    }
+
+    #[test]
+    fn build_task_description_concise_omits_tools_and_long_essays() {
+        let subagents = vec![
+            SubagentDescriptor {
+                name: "general-purpose".into(),
+                description: "General-purpose agent.".into(),
+                tools: Some("Has access to all tools.".into()),
+            },
+            SubagentDescriptor {
+                name: "explore".into(),
+                description: "Explore.".into(),
+                tools: Some("Read-only — has access to: read, list.".into()),
+            },
+        ];
+        let desc = build_task_description_with_detail(
+            &subagents,
+            &literal_naming(),
+            TaskDescriptionDetail::Concise,
+        );
+        assert!(desc.starts_with("Start a subagent that works on a task independently"));
+        assert!(desc.contains("- **general-purpose**: General-purpose agent."));
+        assert!(desc.contains("- **explore**: Explore."));
+        assert!(
+            !desc.contains("Has access to all tools."),
+            "concise must omit tools fragment"
+        );
+        assert!(
+            !desc.contains("Read-only"),
+            "concise must omit tools fragment"
+        );
+        assert!(
+            !desc.contains("## Usage notes"),
+            "concise uses short Usage section, not Full essay headers"
+        );
+        assert!(desc.contains("resume_from"));
+        assert!(desc.contains("isolation"));
+        assert!(desc.contains("16-subagents.md"));
+        assert!(
+            desc.len() < 900,
+            "concise description should stay compact, got {} chars",
+            desc.len()
+        );
+    }
+
+    #[test]
+    fn build_task_description_defaults_to_full() {
+        let subagents = vec![SubagentDescriptor {
+            name: "explore".into(),
+            description: "Explore.".into(),
+            tools: Some("tools here".into()),
+        }];
+        let full = build_task_description(&subagents, &literal_naming());
+        let explicit = build_task_description_with_detail(
+            &subagents,
+            &literal_naming(),
+            TaskDescriptionDetail::Full,
+        );
+        assert_eq!(full, explicit);
+        assert!(full.contains("tools here"));
+        assert!(full.contains("## Usage notes"));
     }
 
     #[test]
