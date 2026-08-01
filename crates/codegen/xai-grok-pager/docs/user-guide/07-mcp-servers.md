@@ -33,6 +33,8 @@ enabled = true                        # Enable or disable the server (default: t
 startup_timeout_sec = 30              # Server startup timeout, seconds (default: 30)
 tool_timeout_sec = 6000               # Per-tool-call timeout fallback, seconds (default: 6000)
 tool_timeouts = { slow_op = 120 }     # Per-tool timeout overrides, seconds
+# Optional: promote selected tools into the model-facing tool list (see below).
+# promote_tools = ["create_issue", "list_pull_requests"]
 ```
 
 > **Global startup-timeout override:** instead of setting `startup_timeout_sec`
@@ -205,6 +207,28 @@ The model has access to two built-in tools for working with MCP servers:
 
 - `search_tool` — Discover available integration tools across all enabled MCP servers. Use this to find tools by name or description.
 - `use_tool` — Call an integration tool discovered via `search_tool`. Specify the fully-qualified tool name (e.g., `github__create_issue`).
+
+By default, MCP tool schemas are **not** sent in the model tool list. That keeps the tool set stable across turns (better KV-cache reuse) while tools remain fully registered and callable via `use_tool`.
+
+### Promote selected tools into the model tool list
+
+If you want a few high-value MCP tools to appear as first-class tools (so the model can call them directly without `search_tool` / `use_tool`), list them under the server:
+
+```toml
+[mcp_servers.github]
+url = "https://mcp.example.com/github"
+promote_tools = ["create_issue", "list_pull_requests"]
+```
+
+Rules:
+
+- **Default is off.** An empty or omitted `promote_tools` leaves that server’s tools behind discovery only.
+- Entries may be **bare tool ids** (scoped to this server: `create_issue` → `github__create_issue`) or **fully-qualified** names (`github__create_issue`).
+- Only tools that are actually registered (server connected and tool advertised) appear. Unknown names are ignored.
+- Promoted tools keep their qualified names (`server__tool`) and are invoked **directly** by that name; they do not require `use_tool`.
+- Unlisted tools on the same server remain available through `search_tool` / `use_tool`.
+
+Prefer a small allowlist. Promoting large tool surfaces reintroduces the tool-list churn this design avoids.
 
 ---
 
