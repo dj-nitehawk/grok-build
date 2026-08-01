@@ -18,8 +18,6 @@ pub(crate) mod cancel_latency;
 pub mod cli;
 pub mod consent;
 pub use crate::link_opener;
-use xai_grok_telemetry::region;
-use xai_grok_telemetry::region::Parent;
 /// Off-thread full-file syntax highlight upgrade for edit diffs.
 pub mod edit_highlight_worker;
 /// Off-thread Mermaid diagram render worker (out of process) + per-session cache.
@@ -48,6 +46,7 @@ mod event_loop_stall;
 mod exit_timeout;
 pub(crate) mod external_editor;
 mod foreign_sessions;
+mod startup;
 mod inline_edit;
 #[cfg(all(test, unix))]
 mod leader_cluster;
@@ -641,45 +640,16 @@ pub async fn run(
         args.force_login = false;
     }
     xai_tty_utils::redirect_native_stderr();
-    let refreshed_auth = tokio::time::timeout(
-        xai_grok_shell::http::STARTUP_AUTH_REFRESH_TIMEOUT,
-        xai_grok_shell::auth::try_ensure_fresh_auth(&grok_com_config),
-    )
-    .await
-    .unwrap_or(None);
-    let had_prefetch = match refreshed_auth {
-        Some(auth) => xai_grok_shell::agent::models::startup_prefetch::begin_with_auth(Some(auth)),
-        None => {
-            xai_grok_shell::agent::models::startup_prefetch::begin(Some(grok_com_config.clone()))
-        }
-    };
+    // Start network work immediately, but do not await auth refresh or prefetch
+    // join before local leader resolution / session setup / terminal init.
+    let early_prefetch = startup::kick_auth_and_prefetch(grok_com_config);
     xai_grok_shell::agent::mvp_agent::warm_async_http_client();
     tokio::task::spawn_blocking(|| {});
     if let Ok(cwd) = std::env::current_dir() {
         crate::git_info::populate_from_cwd_async(cwd);
     }
-    let prefetch_wait_started = std::time::Instant::now();
-    let remote_settings = if had_prefetch {
-        let _wait_span = region!("startup.prefetch_join_wait", Parent::Inherit);
-        let settings =
-            xai_grok_shell::agent::models::startup_prefetch::wait_settings(EARLY_PREFETCH_WAIT);
-        xai_grok_telemetry::startup::record_prefetch_wait(prefetch_wait_started.elapsed());
-        settings
-    } else {
-        None
-    };
-    xai_grok_shell::util::config::cache_remote_auto_mode(
-        remote_settings.as_ref().and_then(|s| s.auto_mode.clone()),
-    );
-    xai_grok_shell::util::config::cache_remote_prompt_suggestions(
-        remote_settings
-            .as_ref()
-            .and_then(|s| s.prompt_suggestions.clone()),
-    );
-    xai_grok_shell::util::config::set_remote_campaigns_from_settings(remote_settings.as_ref());
-    let raw_config = xai_grok_shell::config::load_effective_config()
-        .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
-    let prefetch_elapsed = startup_start.elapsed();
+    // CLI + local config only; remote leader_mode is a deferred adjustment after
+    // prefetch join (unknown remote must not reclaim leaders).
     let requested_confinement = xai_grok_sandbox::requested_confinement_profile();
     let LeaderMode {
         use_leader,
@@ -689,7 +659,7 @@ pub async fn run(
         args.leader,
         args.no_leader,
         &raw_config,
-        remote_settings.as_ref(),
+        None,
         true,
         requested_confinement,
     );
@@ -699,7 +669,6 @@ pub async fn run(
         sandbox_profile = ?requested_confinement,
         // The other fields cannot distinguish this from leader mode being off already while a sandbox is on
         leader_disabled_by_sandbox = disabled_by_confinement.is_some(),
-        prefetch_ms = prefetch_elapsed.as_millis() as u64,
         "pager TUI leader mode resolved"
     );
     if let Some(profile) = disabled_by_confinement {
@@ -801,49 +770,7 @@ pub async fn run(
         env_hunk_tracker_mode.as_deref(),
         config_hunk_tracker_mode,
     );
-    let remote_permission_mode = remote_settings
-        .as_ref()
-        .and_then(|s| s.permission_mode.as_deref());
-    let launch_yolo = xai_grok_shell::util::config::effective_yolo_for_launch(
-        args.yolo,
-        args.permission_mode_flag.as_deref(),
-        remote_permission_mode,
-    );
-    let launch_auto = xai_grok_shell::util::config::effective_auto_for_launch(
-        args.yolo,
-        args.permission_mode_flag.as_deref(),
-        remote_permission_mode,
-        xai_grok_shell::util::config::default_interactive_permission_mode(),
-    );
-    let mut connect_flags = crate::acp::ConnectFlags {
-        subagents: !args.no_subagents,
-        memory_enabled_override: args.memory_enabled_override(),
-        memory_override_flag: args.memory_override_flag(),
-        disable_web_search: args.disable_web_search,
-        todo_gate: args.todo_gate,
-        laziness_debug_log: None,
-        storage_mode: args.storage_mode.clone(),
-        client_identifier: args.client_identifier.clone(),
-        hunk_tracker_mode,
-        terminal: args.terminal,
-        fs_read: args.fs_read,
-        fs_write: args.fs_write,
-        installer: args.installer.clone(),
-        remote_settings: remote_settings.clone(),
-        system_prompt_override: args.system_prompt_override.clone(),
-        rules: args.rules.clone(),
-        reasoning_effort_override: args
-            .reasoning_effort
-            .as_deref()
-            .and_then(xai_grok_shell::sampling::types::parse_canonical_effort_token),
-        permission_rules: crate::headless::parse_permission_rules_lenient(
-            &args.allow_rules,
-            &args.deny_rules,
-        ),
-        default_yolo_mode: launch_yolo.yolo,
-        default_auto_mode: launch_auto && !launch_yolo.yolo,
-        status_line: false,
-    };
+
     let mut config_watcher = crate::appearance::ConfigWatcher::start().await?;
     let alt_screen_config_mode = config_watcher.current().alt_screen;
     let term_ctx = crate::terminal::terminal_context();
@@ -875,9 +802,6 @@ pub async fn run(
         Ordering::Release,
     );
     let minimal = screen_mode.is_minimal();
-    connect_flags.status_line = event_loop::load_initial_ui_config()
-        .status_line
-        .reserves_a_row();
     let relaunched_into_minimal = screen_mode_override == Some(ScreenMode::Minimal);
     let relaunched_into_fullscreen = screen_mode_override == Some(ScreenMode::Fullscreen);
     tracing::info!(
@@ -902,7 +826,8 @@ pub async fn run(
     let minimal_live_rows = config_watcher.current().minimal_live_rows;
     let (frame_tx, writer_sync, writer_event_rx, writer_thread) =
         crate::render::draw::spawn_writer_thread();
-    let cursor_blink = event_loop::load_initial_ui_config().cursor_blink;
+    // Reuse the already-loaded effective config (no second disk merge).
+    let cursor_blink = startup::ui_config_from_effective(&raw_config).cursor_blink;
     let TerminalInit {
         mut terminal,
         screen_mode,
@@ -924,6 +849,91 @@ pub async fn run(
     if let Some(ref t) = session_title {
         set_terminal_title(t);
     }
+    // First paint before prefetch join / ACP connect: real welcome (frozen) so
+    // startup feels instant; input is live only after the event loop starts.
+    startup::paint_connecting_frame(&mut terminal, &raw_config, screen_mode);
+    let skeleton_ms = startup_start.elapsed().as_millis() as u64;
+    // unified_log works pre-connect (no ACP tx); tracing firehose starts later.
+    xai_grok_telemetry::unified_log::info(
+        "pager TUI connecting welcome painted before connect",
+        None,
+        Some(serde_json::json!({ "skeleton_ms": skeleton_ms })),
+    );
+    tracing::info!(
+        skeleton_ms,
+        "pager TUI connecting welcome painted before connect"
+    );
+    // Prefetch has been running in parallel with session/terminal setup; join
+    // only now so first paint is not blocked on network.
+    let remote_settings = startup::join_early_prefetch(early_prefetch);
+    let prefetch_elapsed = startup_start.elapsed();
+    startup::apply_remote_settings_caches(remote_settings.as_ref());
+    let raw_config =
+        startup::reload_config_after_remote(raw_config, remote_settings.as_ref())?;
+    tracing::info!(
+        prefetch_ms = prefetch_elapsed.as_millis() as u64,
+        has_remote_settings = remote_settings.is_some(),
+        ttfp_ms = startup_start.elapsed().as_millis() as u64,
+        "pager TUI prefetch joined after terminal init"
+    );
+    // Remote kill-switch when CLI/local did not decide (release-dist only path
+    // inside resolve_leader_mode). Unknown remote already resolved as no reclaim.
+    #[cfg(feature = "release-dist")]
+    if !args.leader
+        && !args.no_leader
+        && config::use_leader_from_toml_opt(&raw_config).is_none()
+        && remote_settings
+            .as_ref()
+            .and_then(|s| s.leader_mode)
+            == Some(false)
+    {
+        tokio::spawn(xai_grok_shell::leader::kill_stale_reachable_leaders("remote"));
+    }
+    let remote_permission_mode = remote_settings
+        .as_ref()
+        .and_then(|s| s.permission_mode.as_deref());
+    let launch_yolo = xai_grok_shell::util::config::effective_yolo_for_launch(
+        args.yolo,
+        args.permission_mode_flag.as_deref(),
+        remote_permission_mode,
+    );
+    let launch_auto = xai_grok_shell::util::config::effective_auto_for_launch(
+        args.yolo,
+        args.permission_mode_flag.as_deref(),
+        remote_permission_mode,
+        xai_grok_shell::util::config::default_interactive_permission_mode(),
+    );
+    let connect_flags = crate::acp::ConnectFlags {
+        subagents: !args.no_subagents,
+        memory_enabled_override: args.memory_enabled_override(),
+        memory_override_flag: args.memory_override_flag(),
+        disable_web_search: args.disable_web_search,
+        todo_gate: args.todo_gate,
+        laziness_debug_log: None,
+        storage_mode: args.storage_mode.clone(),
+        client_identifier: args.client_identifier.clone(),
+        hunk_tracker_mode,
+        terminal: args.terminal,
+        fs_read: args.fs_read,
+        fs_write: args.fs_write,
+        installer: args.installer.clone(),
+        remote_settings: remote_settings.clone(),
+        system_prompt_override: args.system_prompt_override.clone(),
+        rules: args.rules.clone(),
+        reasoning_effort_override: args
+            .reasoning_effort
+            .as_deref()
+            .and_then(xai_grok_shell::sampling::types::parse_canonical_effort_token),
+        permission_rules: crate::headless::parse_permission_rules_lenient(
+            &args.allow_rules,
+            &args.deny_rules,
+        ),
+        default_yolo_mode: launch_yolo.yolo,
+        default_auto_mode: launch_auto && !launch_yolo.yolo,
+        status_line: status_line::draws_a_row(
+            &startup::ui_config_from_effective(&raw_config).status_line,
+        ),
+    };
     let connect_ui_timeout_env = std::env::var(connect_timeout::CONNECT_UI_TIMEOUT_ENV).ok();
     let connect_ui_timeout = connect_timeout::resolve(connect_ui_timeout_env.as_deref());
     if let Some(raw) = connect_ui_timeout_env {
@@ -967,7 +977,7 @@ pub async fn run(
             if use_leader {
                 crate::acp::connect_via_leader(&cancel, connect_flags, &raw_config).await
             } else {
-                crate::acp::connect(&cancel, connect_flags).await
+                crate::acp::connect(&cancel, connect_flags, &raw_config).await
             }
         },
     )
@@ -990,7 +1000,7 @@ pub async fn run(
                     longest_step: f.longest_step,
                 }),
                 &timer,
-                async { crate::acp::connect(&cancel, flags).await },
+                async { crate::acp::connect(&cancel, flags, &raw_config).await },
             )
             .await;
             (fallback, true, timer, target)
@@ -1027,6 +1037,8 @@ pub async fn run(
             return Err(f.error);
         }
     };
+    // Connecting frame was not interactive; drop any keys typed while frozen.
+    startup::discard_pending_input();
     let agent_guard =
         crate::acp::spawn::AgentShutdownGuard::new(cancel.clone(), connection.agent_thread.take());
     let effective_args = PagerArgs {
@@ -1058,6 +1070,8 @@ pub async fn run(
         materialized,
         bg_update_rx,
         writer_event_rx,
+        // Post-remote snapshot: AppInit reuses this instead of re-merging disk.
+        Some(raw_config),
     )
     .await;
     signal_handler::clear_quit_notify();
