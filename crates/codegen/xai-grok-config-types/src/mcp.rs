@@ -7,7 +7,7 @@ pub use xai_grok_config::{
     KNOWN_MCP_SERVER_FIELDS, McpConfig, McpJsonOAuthBlock, McpPreferenceSource, McpPreferencesFile,
     McpServerConfig, McpServerConfigProblem, McpServerPreferences, McpServerProblemSeverity,
     McpServerTransportConfig, McpSetupConfig, McpSetupDerivedValue, McpSetupField,
-    McpSetupFieldType, McpSetupOption, McpSetupResolution,
+    McpSetupFieldType, McpSetupOption, McpSetupResolution, collect_promoted_mcp_tool_names,
 };
 
 /// Configuration for relay session sharing, set in config.toml under the `[relay]` section.

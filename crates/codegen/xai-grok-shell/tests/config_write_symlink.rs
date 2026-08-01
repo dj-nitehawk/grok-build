@@ -39,6 +39,7 @@ fn user_config_writers_write_through_a_symlink() {
         tool_timeout_sec: None,
         tool_timeouts: None,
         expose_image_base64: None,
+        promote_tools: Vec::new(),
     };
 
     tokio::runtime::Builder::new_current_thread()
@@ -77,15 +78,22 @@ fn user_config_writers_write_through_a_symlink() {
                 "the link target must lose only the server: {written}"
             );
 
-            xai_grok_shell::claude_import::mark_claude_imported().expect("claude import marker");
-            assert!(is_symlink(&link), "the import marker must keep the link");
-            let written: toml::Value = toml::from_str(&std::fs::read_to_string(&target).unwrap())
-                .expect("target stays valid TOML");
-            assert_eq!(
-                written["claude_compat"]["imported"].as_bool(),
-                Some(true),
-                "the link target must carry the import marker"
-            );
+            // The marker writer lives in the real Claude-import module. Slim
+            // builds stub that call so it does not touch config.toml.
+            #[cfg(feature = "foreign-sessions")]
+            {
+                xai_grok_shell::claude_import::mark_claude_imported()
+                    .expect("claude import marker");
+                assert!(is_symlink(&link), "the import marker must keep the link");
+                let written: toml::Value =
+                    toml::from_str(&std::fs::read_to_string(&target).unwrap())
+                        .expect("target stays valid TOML");
+                assert_eq!(
+                    written["claude_compat"]["imported"].as_bool(),
+                    Some(true),
+                    "the link target must carry the import marker"
+                );
+            }
 
             // A link a repository committed at `.grok/config.toml` is replaced at the link name, never followed.
             let repo = tempfile::tempdir().expect("repo");
