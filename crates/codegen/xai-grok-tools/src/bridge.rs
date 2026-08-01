@@ -122,6 +122,16 @@ impl ToolBridge {
         self.registry.tool_definitions_builtins_only_inline_mcp()
     }
 
+    /// Built-ins plus config-promoted MCP tools. See
+    /// [`FinalizedToolset::tool_definitions_with_promoted_mcp`].
+    pub async fn tool_definitions_with_promoted_mcp(
+        &self,
+        promoted_qualified: &std::collections::HashSet<String>,
+    ) -> Vec<ToolDefinition> {
+        self.registry
+            .tool_definitions_with_promoted_mcp(promoted_qualified)
+    }
+
     /// Render a prompt template through [`TemplateRenderer`] with extra agent-specific context fields. The template can use
     /// both `${{ tools.by_kind.* }}` (resolved from the finalized tool registry) and caller-provided fields like `${{
     /// os_name }}`, `${{ memory_enabled }}`, etc. Returns `None` if the renderer is not yet available.
