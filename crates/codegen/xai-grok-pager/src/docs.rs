@@ -241,13 +241,49 @@ pub fn default_howto_entries() -> Vec<DocEntry> {
         .collect()
 }
 
+/// Stamp file written after a full extract. Content is a blake3 hex of the
+/// embedded guide set so warm starts can skip rewriting ~440KB of docs.
+const EXTRACT_STAMP_NAME: &str = ".extract-stamp";
+
+/// Content-address of the managed user-guide set (filenames + bodies).
+fn user_guide_content_stamp() -> String {
+    let mut hasher = blake3::Hasher::new();
+    for doc in USER_GUIDE {
+        hasher.update(doc.filename.as_bytes());
+        hasher.update(&[0]);
+        hasher.update(doc.content.as_bytes());
+        hasher.update(&[0]);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+fn docs_already_extracted(docs_dir: &std::path::Path, stamp: &str) -> bool {
+    let stamp_path = docs_dir.join(EXTRACT_STAMP_NAME);
+    let Ok(existing) = std::fs::read_to_string(&stamp_path) else {
+        return false;
+    };
+    if existing.trim() != stamp {
+        return false;
+    }
+    // Stamp matches, but a partial delete should still force a rewrite.
+    USER_GUIDE
+        .iter()
+        .all(|doc| docs_dir.join(doc.filename).is_file())
+}
+
 /// Extract user-guide docs to `<grok_home>/docs/user-guide/`.
 ///
 /// Called from the pager binary startup so the model can read them from disk.
+/// Skips the rewrite when an on-disk stamp matches the embedded guide set and
+/// every managed file is still present.
 pub fn extract_user_guide_docs(grok_home: &std::path::Path) {
     let docs_dir = grok_home.join("docs").join("user-guide");
     if let Err(e) = std::fs::create_dir_all(&docs_dir) {
         tracing::warn!(error = %e, "Failed to create user-guide docs directory");
+        return;
+    }
+    let stamp = user_guide_content_stamp();
+    if docs_already_extracted(&docs_dir, &stamp) {
         return;
     }
     for doc in USER_GUIDE {
@@ -275,6 +311,9 @@ pub fn extract_user_guide_docs(grok_home: &std::path::Path) {
                 }
             }
         }
+    }
+    if let Err(e) = std::fs::write(docs_dir.join(EXTRACT_STAMP_NAME), &stamp) {
+        tracing::debug!(error = %e, "Failed to write user-guide extract stamp");
     }
 }
 
@@ -376,5 +415,46 @@ mod tests {
             docs_dir.join("notes.md").exists(),
             "User file should not be deleted"
         );
+        assert!(
+            docs_dir.join(EXTRACT_STAMP_NAME).exists(),
+            "Extract stamp should be written"
+        );
+    }
+
+    #[test]
+    fn extract_skips_rewrite_when_stamp_matches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let docs_dir = tmp.path().join("docs").join("user-guide");
+
+        extract_user_guide_docs(tmp.path());
+        let first = USER_GUIDE[0].filename;
+        let path = docs_dir.join(first);
+        let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+
+        // Second extract with unchanged embedded set must not rewrite files.
+        extract_user_guide_docs(tmp.path());
+        let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(
+            mtime_before, mtime_after,
+            "warm extract should skip rewrite when stamp matches"
+        );
+    }
+
+    #[test]
+    fn extract_rewrites_when_managed_file_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let docs_dir = tmp.path().join("docs").join("user-guide");
+
+        extract_user_guide_docs(tmp.path());
+        let first = USER_GUIDE[0].filename;
+        let path = docs_dir.join(first);
+        std::fs::remove_file(&path).unwrap();
+
+        extract_user_guide_docs(tmp.path());
+        assert!(
+            path.exists(),
+            "missing managed file should force re-extract"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), USER_GUIDE[0].content);
     }
 }
