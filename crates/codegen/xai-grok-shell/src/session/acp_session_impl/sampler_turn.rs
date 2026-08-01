@@ -428,13 +428,24 @@ impl SessionActor {
         // Prefire runs `spawn_local` on the same LocalSet as the turn loop, so a parked borrow here would panic if turn/compact/cancel also borrowed it
         let bridge = self.agent.borrow().tool_bridge().clone();
 
-        // Local mode: tool search is always enabled
-        let defs = if self.mcp_file_forms_hidden().await {
+        // Local mode: tool search is always enabled.
+        // Messages-backed models get inline-only `use_tool` (no file forms).
+        let mut defs = if self.mcp_file_forms_hidden().await {
             bridge.tool_definitions_builtins_only_inline_mcp().await
         } else {
             bridge.tool_definitions_builtins_only().await
         };
-
+        // Config-driven MCP promotion (default off). Thin switchboard; body in
+        // `session::mcp_promote` so the upstream builtins-only path stays intact.
+        let cwd = std::path::Path::new(self.session_info.cwd.as_str());
+        let promoted = crate::session::mcp_promote::promoted_tool_names_for_cwd(cwd);
+        if !promoted.is_empty() {
+            crate::session::mcp_promote::append_promoted_mcp_definitions(
+                bridge.tool_definitions().await,
+                &promoted,
+                &mut defs,
+            );
+        }
         let plan_active = self.plan_mode.lock().is_active();
         filter_cursor_tools_by_plan_mode(defs, plan_active)
     }
