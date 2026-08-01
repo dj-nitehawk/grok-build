@@ -20,8 +20,6 @@ pub(crate) mod command_catalog;
 pub mod consent;
 pub(crate) mod deferred_subagent_finishes;
 pub use crate::link_opener;
-use xai_grok_telemetry::region;
-use xai_grok_telemetry::region::Parent;
 /// Off-thread full-file syntax highlight upgrade for edit diffs.
 pub mod edit_highlight_worker;
 /// Off-thread Mermaid diagram render worker (out of process) + per-session cache.
@@ -69,6 +67,7 @@ mod queue_edit;
 mod reader_thread;
 pub(crate) mod screen_mode_relaunch;
 mod session_load_barrier;
+mod startup;
 mod startup_failure;
 use reader_thread::ReaderThread;
 pub mod signal_handler;
@@ -527,6 +526,84 @@ pub fn resolve_use_leader(
     );
     (resolved.use_leader, resolved.policy_disable_reason)
 }
+
+/// Leader decision once prefetch has returned remote settings.
+///
+/// The early decision ran with remote unknown so a missing network signal could
+/// not reclaim leaders or block first paint. This applies the remote result
+/// before connect. `--chat` that already passed that early gate stays embedded
+/// instead of aborting a startup that is already on screen.
+struct DeferredLeader<'p> {
+    use_leader: bool,
+    /// Set only when policy became a definitive off after prefetch (spawn one kill).
+    kill_reason: Option<&'static str>,
+    /// Set only when the sandbox veto is new (the early decision did not warn).
+    warn_confinement: Option<&'p str>,
+}
+
+fn defer_leader_after_prefetch<'p>(
+    early: LeaderMode<'p>,
+    late: LeaderMode<'p>,
+    chat: bool,
+) -> DeferredLeader<'p> {
+    let use_leader = if session_startup::chat_mode_conflicts_with_leader(chat, late.use_leader) {
+        false
+    } else {
+        late.use_leader
+    };
+    // Final policy only. The early decision must not have spawned a kill; a
+    // campaign overlay can still flip leader on, and an in-flight kill would
+    // reap that leader. Chat veto is not a policy disable, so it does not reap.
+    let kill_reason = if use_leader {
+        None
+    } else {
+        late.policy_disable_reason
+    };
+    let warn_confinement = match (early.disabled_by_confinement, late.disabled_by_confinement) {
+        (None, Some(profile)) => Some(profile),
+        _ => None,
+    };
+    DeferredLeader {
+        use_leader,
+        kill_reason,
+        warn_confinement,
+    }
+}
+
+/// Apply remote `terminal_theme_enabled` once prefetch joins.
+///
+/// Startup paints before remote settings exist, with the flag resolved as
+/// unknown (default off unless a local pin, env, or config already enabled it).
+/// A later settings push will not reveal `theme = "terminal"` mid-session, so
+/// the reveal has to happen here, before the live event loop. Auto and OSC
+/// selection is left alone unless the resolved kind is terminal-native, or a
+/// kill switch has to drop one.
+fn sync_terminal_theme_after_prefetch(remote: Option<bool>, minimal: bool) {
+    let enabled = resolve_terminal_theme_enabled(remote);
+    let was = crate::theme::cache::terminal_theme_enabled();
+    if enabled == was {
+        return;
+    }
+    crate::theme::cache::set_terminal_theme_enabled(enabled);
+    if minimal {
+        return;
+    }
+    let selected_terminal = crate::theme::cache::selected_kind().is_terminal_native();
+    // Auto already resolved with OSC at engage. Re-running detection here can
+    // flip that choice when the dark auto theme is `terminal`. Leave auto alone;
+    // the flag is set, so a later appearance change can pick terminal up.
+    if enabled && !crate::theme::cache::is_auto_mode() {
+        let kind = crate::theme::cache::resolve_initial_theme_no_osc11();
+        if kind.is_terminal_native() {
+            crate::theme::cache::set(kind);
+            crate::theme::apply_cursor_color();
+        }
+    } else if !enabled && selected_terminal {
+        let kind = crate::theme::cache::resolve_initial_theme_no_osc11();
+        crate::theme::cache::set(kind);
+        crate::theme::apply_cursor_color();
+    }
+}
 /// How long the sandbox note stays uncovered before a fullscreen TUI opens over it.
 /// Paid only when the note was printed and the screen is about to hide it.
 const SANDBOX_NOTICE_LINGER: std::time::Duration = std::time::Duration::from_millis(1_200);
@@ -700,67 +777,18 @@ pub async fn run(
         args.force_login = false;
     }
     xai_tty_utils::redirect_native_stderr();
-    let refreshed_auth = tokio::time::timeout(
-        xai_grok_shell::http::STARTUP_AUTH_REFRESH_TIMEOUT,
-        xai_grok_login::try_ensure_fresh_auth(&grok_com_config, proxy_base_url),
-    )
-    .await
-    .unwrap_or(None);
-    let settings_query = xai_grok_shell::agent::remote_config::settings_get::SettingsQuery::resolve(
-        refreshed_auth,
-        Some(grok_com_config.clone()),
-    );
-    let had_prefetch =
-        xai_grok_shell::agent::remote_config::settings_get::is_eligible(&settings_query);
-    if had_prefetch {
-        xai_grok_shell::agent::remote_config::settings_get::warm_startup_settings(
-            settings_query.clone(),
-        );
-    }
+    // Start network work immediately, but do not await auth refresh or prefetch
+    // join before local leader resolution / session setup / terminal init.
+    let early_prefetch = startup::kick_auth_and_prefetch(grok_com_config, proxy_base_url);
     xai_grok_shell::agent::mvp_agent::warm_async_http_client();
     tokio::task::spawn_blocking(|| {});
     if let Ok(cwd) = std::env::current_dir() {
         crate::git_info::populate_from_cwd_async(cwd);
     }
-    let prefetch_wait_started = std::time::Instant::now();
-    let remote_settings = if had_prefetch {
-        let _wait_span = region!("startup.prefetch_join_wait", Parent::Inherit);
-        let warmed_auth = settings_query.auth().cloned();
-        let wait = {
-            let _settings = region!(
-                "startup.prefetch_join_wait.settings",
-                Parent::Explicit(_wait_span.span())
-            );
-            xai_grok_shell::agent::remote_config::settings_get::await_startup_settings(
-                settings_query,
-                EARLY_PREFETCH_WAIT,
-                &tokio_util::sync::CancellationToken::new(),
-            )
-            .await
-        };
-        let settings = xai_grok_shell::agent::remote_config::settings_get::consume_wait(
-            wait,
-            warmed_auth.as_ref(),
-            &grok_com_config,
-        );
-        xai_grok_telemetry::startup::record_prefetch_wait(prefetch_wait_started.elapsed());
-        settings
-    } else {
-        None
-    };
-    seed_remote_ui_caches(remote_settings.as_ref());
-    let raw_config = xai_grok_shell::config::load_effective_config()
+    // CLI + local config only; remote leader_mode is a deferred adjustment after
+    // prefetch join (unknown remote must not reclaim leaders).
+    let (config_layers, raw_config) = xai_grok_shell::config::load_effective_config_with_layers()
         .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
-    xai_grok_shell::config::cache_standalone_memory_mode(
-        xai_grok_shell::config::MemoryConfig::resolve(
-            args.experimental_memory,
-            args.no_memory,
-            &raw_config,
-            remote_settings.as_ref(),
-        )
-        .mode,
-    );
-    let prefetch_elapsed = startup_start.elapsed();
     let requested_confinement = xai_grok_sandbox::requested_confinement_profile();
     let LeaderMode {
         use_leader,
@@ -770,7 +798,7 @@ pub async fn run(
         args.leader,
         args.no_leader,
         &raw_config,
-        remote_settings.as_ref(),
+        None,
         true,
         requested_confinement,
     );
@@ -780,7 +808,6 @@ pub async fn run(
         sandbox_profile = ?requested_confinement,
         // The other fields cannot distinguish this from leader mode being off already while a sandbox is on
         leader_disabled_by_sandbox = disabled_by_confinement.is_some(),
-        prefetch_ms = prefetch_elapsed.as_millis() as u64,
         "pager TUI leader mode resolved"
     );
     if let Some(profile) = disabled_by_confinement {
@@ -799,9 +826,9 @@ pub async fn run(
             }
         }
     }
-    if let Some(reason) = policy_disable_reason {
-        tokio::spawn(xai_grok_shell::leader::kill_stale_reachable_leaders(reason));
-    }
+    // Do not reap leaders yet. Campaign overlays land in the post-prefetch
+    // config reload and can still turn leader mode on. An early kill would race
+    // that decision and reap the leader this process is about to connect to.
     if let Some(err) =
         session_startup::chat_mode_flag_conflict(args.chat(), args.fork_session, args.restore_code)
     {
@@ -884,49 +911,6 @@ pub async fn run(
         env_hunk_tracker_mode.as_deref(),
         config_hunk_tracker_mode,
     );
-    let remote_permission_mode = remote_settings
-        .as_ref()
-        .and_then(|s| s.permission_mode.as_deref());
-    let launch_yolo = xai_grok_shell::util::config::effective_yolo_for_launch(
-        args.yolo,
-        args.permission_mode_flag.as_deref(),
-        remote_permission_mode,
-    );
-    let launch_auto = xai_grok_shell::util::config::effective_auto_for_launch(
-        args.yolo,
-        args.permission_mode_flag.as_deref(),
-        remote_permission_mode,
-        xai_grok_shell::util::config::default_interactive_permission_mode(),
-    );
-    let mut connect_flags = crate::acp::ConnectFlags {
-        no_subagents: args.no_subagents,
-        memory_enabled_override: args.memory_enabled_override(),
-        memory_override_flag: args.memory_override_flag(),
-        disable_web_search: args.disable_web_search,
-        todo_gate: args.todo_gate,
-        laziness_debug_log: None,
-        storage_mode: args.storage_mode.clone(),
-        client_identifier: args.client_identifier.clone(),
-        hunk_tracker_mode,
-        terminal: args.terminal,
-        fs_read: args.fs_read,
-        fs_write: args.fs_write,
-        installer: args.installer.clone(),
-        remote_settings: remote_settings.clone(),
-        system_prompt_override: args.system_prompt_override.clone(),
-        rules: args.rules.clone(),
-        reasoning_effort_override: args
-            .reasoning_effort
-            .as_deref()
-            .and_then(xai_grok_shell::sampling::types::parse_canonical_effort_token),
-        permission_rules: crate::headless::parse_permission_rules_lenient(
-            &args.allow_rules,
-            &args.deny_rules,
-        ),
-        default_yolo_mode: launch_yolo.yolo,
-        default_auto_mode: launch_auto && !launch_yolo.yolo,
-        status_line: false,
-    };
     let mut config_watcher = crate::appearance::ConfigWatcher::start().await?;
     let alt_screen_config_mode = config_watcher.current().alt_screen;
     let term_ctx = crate::terminal::terminal_context();
@@ -958,9 +942,6 @@ pub async fn run(
         Ordering::Release,
     );
     let minimal = screen_mode.is_minimal();
-    connect_flags.status_line = event_loop::load_initial_ui_config()
-        .status_line
-        .reserves_a_row();
     let relaunched_into_minimal = screen_mode_override == Some(ScreenMode::Minimal);
     let relaunched_into_fullscreen = screen_mode_override == Some(ScreenMode::Fullscreen);
     tracing::info!(
@@ -981,21 +962,18 @@ pub async fn run(
     if disabled_by_confinement.is_some() && screen_mode.is_fullscreen() {
         tokio::time::sleep(SANDBOX_NOTICE_LINGER).await;
     }
-    crate::theme::cache::set_terminal_theme_enabled(resolve_terminal_theme_enabled(
-        remote_settings
-            .as_ref()
-            .and_then(|s| s.terminal_theme_enabled),
-    ));
+    crate::theme::cache::set_terminal_theme_enabled(resolve_terminal_theme_enabled(None));
     engage_startup_theme(screen_mode);
     let minimal_live_rows = config_watcher.current().minimal_live_rows;
     let (frame_tx, writer_sync, writer_event_rx, writer_thread) =
         crate::render::draw::spawn_writer_thread()
             .context("failed to spawn the term-writer thread")?;
-    let cursor_blink = event_loop::load_initial_ui_config().cursor_blink;
+    // Reuse the already-loaded effective config (no second disk merge).
+    let cursor_blink = startup::ui_config_from_effective(&raw_config).cursor_blink;
     let TerminalInit {
         mut terminal,
         screen_mode,
-        startup_typeahead,
+        mut startup_typeahead,
     } = init_terminal(
         screen_mode,
         minimal_live_rows,
@@ -1013,6 +991,150 @@ pub async fn run(
     if let Some(ref t) = session_title {
         set_terminal_title(t);
     }
+    // First paint before prefetch join / ACP connect: real welcome (frozen) so
+    // startup feels instant; input is live only after the event loop starts.
+    startup::paint_connecting_frame(&mut terminal, &raw_config, screen_mode, "Connecting…");
+    // Keep the kernel tty queue from filling with mouse reports before connect.
+    let mut frozen_input = event_loop::FrozenFrameInput::start();
+    let skeleton_ms = startup_start.elapsed().as_millis() as u64;
+    // unified_log works pre-connect (no ACP tx); tracing firehose starts later.
+    xai_grok_telemetry::unified_log::info(
+        "pager TUI connecting welcome painted before connect",
+        None,
+        Some(serde_json::json!({ "skeleton_ms": skeleton_ms })),
+    );
+    tracing::info!(
+        skeleton_ms,
+        "pager TUI connecting welcome painted before connect"
+    );
+    // Prefetch has been running in parallel with session/terminal setup; join
+    // only now so first paint is not blocked on network.
+    let remote_settings = startup::join_early_prefetch(early_prefetch).await;
+    let prefetch_elapsed = startup_start.elapsed();
+    startup::apply_remote_settings_caches(remote_settings.as_ref());
+    // Terminal is already live. A reload failure must not `?` out and leave raw mode up.
+    let (raw_config, config_layers) = match startup::reload_config_after_remote(
+        raw_config,
+        config_layers,
+        remote_settings.as_ref(),
+    ) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            drop(frozen_input);
+            let _ = restore_terminal(
+                terminal,
+                writer_thread,
+                ReaderThread::detached(),
+                screen_mode,
+            );
+            crate::unified_log::flush_blocking().await;
+            cancel.cancel();
+            return Err(error);
+        }
+    };
+    xai_grok_shell::config::cache_standalone_memory_mode(
+        xai_grok_shell::config::MemoryConfig::resolve(
+            args.experimental_memory,
+            args.no_memory,
+            &raw_config,
+            remote_settings.as_ref(),
+        )
+        .mode,
+    );
+    tracing::info!(
+        prefetch_ms = prefetch_elapsed.as_millis() as u64,
+        has_remote_settings = remote_settings.is_some(),
+        ttfp_ms = startup_start.elapsed().as_millis() as u64,
+        "pager TUI prefetch joined after terminal init"
+    );
+    // Remote leader mode was unknown at the early decision. Apply it now that
+    // prefetch has joined, still before connect. Unknown remote must not have
+    // reclaimed leaders; a definitive remote off does, once.
+    let early_leader = LeaderMode {
+        use_leader,
+        policy_disable_reason,
+        disabled_by_confinement,
+    };
+    let late_leader = resolve_leader_mode(
+        args.leader,
+        args.no_leader,
+        &raw_config,
+        remote_settings.as_ref(),
+        true,
+        requested_confinement,
+    );
+    let deferred = defer_leader_after_prefetch(early_leader, late_leader, args.chat());
+    if early_leader.use_leader != deferred.use_leader {
+        tracing::info!(
+            early = early_leader.use_leader,
+            late = deferred.use_leader,
+            "leader mode updated after prefetch"
+        );
+    }
+    if late_leader.use_leader && !deferred.use_leader {
+        tracing::info!("leader mode stayed off after prefetch: --chat conflicts");
+    }
+    if let Some(reason) = deferred.kill_reason {
+        tokio::spawn(xai_grok_shell::leader::kill_stale_reachable_leaders(reason));
+    }
+    if let Some(profile) = deferred.warn_confinement {
+        // Alt screen is already up. stderr would paint over the frozen frame.
+        tracing::warn!(profile, "sandbox kept leader mode off after prefetch");
+        let toast = format!("Sandbox '{profile}' keeps leader mode off");
+        startup::paint_connecting_frame(&mut terminal, &raw_config, screen_mode, &toast);
+    }
+    let use_leader = deferred.use_leader;
+    sync_terminal_theme_after_prefetch(
+        remote_settings
+            .as_ref()
+            .and_then(|settings| settings.terminal_theme_enabled),
+        screen_mode.is_minimal(),
+    );
+    let remote_permission_mode = remote_settings
+        .as_ref()
+        .and_then(|s| s.permission_mode.as_deref());
+    let launch_yolo = xai_grok_shell::util::config::effective_yolo_for_launch(
+        args.yolo,
+        args.permission_mode_flag.as_deref(),
+        remote_permission_mode,
+    );
+    let launch_auto = xai_grok_shell::util::config::effective_auto_for_launch(
+        args.yolo,
+        args.permission_mode_flag.as_deref(),
+        remote_permission_mode,
+        xai_grok_shell::util::config::default_interactive_permission_mode(),
+    );
+    let connect_flags = crate::acp::ConnectFlags {
+        no_subagents: args.no_subagents,
+        memory_enabled_override: args.memory_enabled_override(),
+        memory_override_flag: args.memory_override_flag(),
+        disable_web_search: args.disable_web_search,
+        todo_gate: args.todo_gate,
+        laziness_debug_log: None,
+        storage_mode: args.storage_mode.clone(),
+        client_identifier: args.client_identifier.clone(),
+        hunk_tracker_mode,
+        terminal: args.terminal,
+        fs_read: args.fs_read,
+        fs_write: args.fs_write,
+        installer: args.installer.clone(),
+        remote_settings: remote_settings.clone(),
+        system_prompt_override: args.system_prompt_override.clone(),
+        rules: args.rules.clone(),
+        reasoning_effort_override: args
+            .reasoning_effort
+            .as_deref()
+            .and_then(xai_grok_shell::sampling::types::parse_canonical_effort_token),
+        permission_rules: crate::headless::parse_permission_rules_lenient(
+            &args.allow_rules,
+            &args.deny_rules,
+        ),
+        default_yolo_mode: launch_yolo.yolo,
+        default_auto_mode: launch_auto && !launch_yolo.yolo,
+        status_line: status_line::draws_a_row(
+            &startup::ui_config_from_effective(&raw_config).status_line,
+        ),
+    };
     let connect_ui_timeout_env = std::env::var(connect_timeout::CONNECT_UI_TIMEOUT_ENV).ok();
     let connect_ui_timeout = connect_timeout::resolve(
         connect_ui_timeout_env.as_deref(),
@@ -1059,7 +1181,7 @@ pub async fn run(
                     crate::acp::connect_via_leader(&cancel, connect_flags, &raw_config).await
                 }
                 crate::acp::AgentKind::Embedded => {
-                    crate::acp::connect(&cancel, connect_flags).await
+                    crate::acp::connect(&cancel, connect_flags, &raw_config).await
                 }
             }
         },
@@ -1084,7 +1206,7 @@ pub async fn run(
                     longest_step: f.longest_step,
                 }),
                 &timer,
-                async { crate::acp::connect(&cancel, flags).await },
+                async { crate::acp::connect(&cancel, flags, &raw_config).await },
             )
             .await;
             (fallback, true, timer, target)
@@ -1115,6 +1237,7 @@ pub async fn run(
             } else {
                 pending_startup.finish(f.outcome);
             }
+            drop(frozen_input);
             let _ = restore_terminal(
                 terminal,
                 writer_thread,
@@ -1126,6 +1249,9 @@ pub async fn run(
             return Err(f.error);
         }
     };
+    // Frozen welcome is not live input. Keep typing as startup type-ahead.
+    startup_typeahead.extend(frozen_input.finish());
+    event_loop::normalize_startup_submissions(&mut startup_typeahead);
     let agent_guard =
         crate::acp::spawn::AgentShutdownGuard::new(cancel.clone(), connection.agent_thread.take());
     let effective_args = PagerArgs {
@@ -1159,6 +1285,9 @@ pub async fn run(
         bg_update_rx,
         writer_event_rx,
         &mut reader_thread,
+        // Post-remote snapshot plus its layers: AppInit reuses both instead of re-merging disk.
+        Some(config_layers),
+        Some(raw_config),
     )
     .await;
     signal_handler::clear_quit_notify();
@@ -1968,6 +2097,94 @@ mod tests {
         assert!(args.no_leader);
         assert!(matches!(args.command, Some(Command::Agent(_))));
     }
+    #[test]
+    fn deferred_leader_adopts_late_enable_without_chat() {
+        let early = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: None,
+            disabled_by_confinement: None,
+        };
+        let late = LeaderMode {
+            use_leader: true,
+            policy_disable_reason: None,
+            disabled_by_confinement: None,
+        };
+        let deferred = defer_leader_after_prefetch(early, late, false);
+        assert!(deferred.use_leader);
+        assert_eq!(deferred.kill_reason, None);
+        assert_eq!(deferred.warn_confinement, None);
+    }
+
+    #[test]
+    fn deferred_leader_keeps_chat_embedded() {
+        let early = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: None,
+            disabled_by_confinement: None,
+        };
+        let late = LeaderMode {
+            use_leader: true,
+            policy_disable_reason: None,
+            disabled_by_confinement: None,
+        };
+        let deferred = defer_leader_after_prefetch(early, late, true);
+        assert!(!deferred.use_leader);
+        assert_eq!(deferred.kill_reason, None);
+    }
+
+    #[test]
+    fn deferred_leader_kills_when_final_policy_is_off() {
+        let early = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: None,
+            disabled_by_confinement: None,
+        };
+        let late = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: Some("remote"),
+            disabled_by_confinement: None,
+        };
+        let deferred = defer_leader_after_prefetch(early, late, false);
+        assert_eq!(deferred.kill_reason, Some("remote"));
+
+        let early_config = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: Some("config"),
+            disabled_by_confinement: None,
+        };
+        let late_config = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: Some("config"),
+            disabled_by_confinement: None,
+        };
+        let again = defer_leader_after_prefetch(early_config, late_config, false);
+        assert_eq!(again.kill_reason, Some("config"));
+    }
+
+    #[test]
+    fn deferred_leader_warns_confinement_only_when_new() {
+        let early = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: None,
+            disabled_by_confinement: None,
+        };
+        let late = LeaderMode {
+            use_leader: false,
+            policy_disable_reason: None,
+            disabled_by_confinement: Some("strict"),
+        };
+        let deferred = defer_leader_after_prefetch(early, late, false);
+        assert_eq!(deferred.warn_confinement, Some("strict"));
+        assert!(!deferred.use_leader);
+
+        let early_warned = LeaderMode {
+            disabled_by_confinement: Some("strict"),
+            ..early
+        };
+        let quiet = defer_leader_after_prefetch(early_warned, late, false);
+        assert_eq!(quiet.warn_confinement, None);
+    }
+
     #[test]
     fn remote_settings_none_falls_through_to_default() {
         let (use_leader, reason) =
