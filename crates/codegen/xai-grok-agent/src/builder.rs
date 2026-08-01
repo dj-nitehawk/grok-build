@@ -909,6 +909,10 @@ impl AgentBuilder {
                 .find(|tc| tc.id == task_tool_id)
             {
                 let mut description = xai_tool_types::build_task_description(&TASK_TOOL_NAMING);
+                // Shared builder stays upstream's short form (no type roster:
+                // `subagent_type` is not on the model-facing schema). The docs
+                // pointer is appended here, not inside `build_task_description`.
+                description.push_str(PARENT_TASK_DOCS_POINTER);
                 description.push_str(&task_model_guidance(
                     self.task_model_selection,
                     &self.task_model_slugs,
@@ -1390,6 +1394,9 @@ Prefer doing the work yourself unless delegation is clearly necessary.\n\
 \n\
 Usage: specify a short ${{ params.task.description }} and a detailed ${{ params.task.prompt }}.\n\
 ${{ params.task.run_in_background }}: Returns immediately with a subagent_id. Use the task output tool to retrieve results. This is set to true by default.";
+/// On-demand pointer appended to the parent description. Must not name
+/// `subagent_type`: that field is omitted from the model-facing schema.
+const PARENT_TASK_DOCS_POINTER: &str = "\n\nFor custom agents, personas, advanced resume/worktree, and examples, read user-guide `16-subagents.md` when needed (not on every turn).";
 const TASK_MODEL_PARAM: &str = "${{ params.task.model }}";
 fn task_model_guidance(selection: TaskModelSelection, model_slugs: &[String]) -> String {
     if selection == TaskModelSelection::Inherited {
@@ -1756,6 +1763,11 @@ mod tests {
             "child description should be compact, got {} chars",
             CHILD_TASK_DESCRIPTION.len()
         );
+    }
+    #[test]
+    fn parent_task_docs_pointer_omits_subagent_type() {
+        assert!(!PARENT_TASK_DOCS_POINTER.contains("subagent_type"));
+        assert!(PARENT_TASK_DOCS_POINTER.contains("16-subagents.md"));
     }
     #[test]
     fn build_task_description_contains_resume_from_guidance() {

@@ -141,6 +141,33 @@ If a persona is requested but cannot be resolved -- it is not found, has no inst
 
 ---
 
+## Agent operating notes (on-demand detail)
+
+The parent `spawn_subagent` description stays short and points here. Read this section when a task needs deeper delegation guidance: custom agents, personas, advanced resume/worktree patterns, or examples. Do not reload this file on every turn.
+
+### When to delegate
+
+- Use a subagent for independent work that benefits from a separate context window (parallel research, isolated implementation, multi-stage review).
+- Prefer doing small, sequential work in the parent session.
+- Put critical project conventions in the child `prompt`. Subagents receive a compacted form of project instructions (`AGENTS.md`), not the full parent transcript.
+
+### Type, resume, isolation, and model
+
+The model-facing schema does not take `subagent_type`. An omitted type is `general-purpose`. Built-in host types are listed under [Built-in Agent Types](#built-in-agent-types). Project- or user-defined agents can add types or shadow those names; the host selects them.
+
+- **`resume_from`**: Pass a completed child's subagent ID. The new child keeps the prior transcript and tool state; send only what changed since the last run. The source must be completed, from this session, and the same agent type.
+- **`isolation`**: `none` shares the parent workspace (default). `worktree` runs in an isolated git worktree so child edits do not touch the parent tree until merged; the worktree path is returned in the result.
+- **`cwd`**: Explicit working directory. Mutually exclusive with `isolation: worktree`. Ignored when `resume_from` is set.
+- **`model`**: Only set when the user explicitly requests a model. Otherwise omit so the child inherits the parent model. Soft-ignored on resume (prior model wins).
+
+### Background results
+
+Background spawns (default) return a subagent ID immediately. Collect output with `get_command_or_subagent_output` (or the product's task-output tool). Cancel with the kill-task tool.
+
+Personas, capability modes, MCP inheritance, and nesting limits are documented in the sections below.
+
+---
+
 ## Spawning Subagents
 
 The main agent calls the `spawn_subagent` tool. Its parameters:
