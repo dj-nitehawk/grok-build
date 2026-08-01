@@ -227,7 +227,7 @@ One commit per series area (currently ~12). Fold within an area:
 | Area | Fold into it |
 | --- | --- |
 | Slim strip | All tools/shell/pager/telemetry/workspace/build/policy-docs commits; post-sync `re-apply slim gates` / feature-cfg fixups |
-| TUI startup TTFP | Config-reuse + nonblocking auth/prefetch (and similar startup-only follow-ups) |
+| TUI startup TTFP | Config-reuse + nonblocking auth/prefetch + frozen welcome paint before connect (and similar startup-only follow-ups) |
 | Other areas | Same-intent fixups only; do not merge unrelated product features |
 
 **Do not** merge distinct product features (prompts, border line, handoff, purge, OKF, MCP promote, redo fix, spawn_subagent, …) into one commit. Keep areas separate so conflicts stay localized.
@@ -431,7 +431,7 @@ cargo tree -p xai-grok-pager-bin --no-default-features -i brotli || true
 6. Ability to promote MCP tools
 7. Slim strip (single commit: tools, shell, pager, telemetry, workspace, build composition, policy docs). Inventory above; `product-full` forwards leaf features.
 8. Unrelated product fix: Ctrl+Shift+Z redo in textarea
-9. TUI startup TTFP: reuse effective config on connect; nonblocking auth/prefetch (`app/startup.rs`; join after terminal; thin reorders in `app::run` / `acp::connect`)
+9. TUI startup TTFP: reuse effective config on connect; nonblocking auth/prefetch; docs extract skip-if-unchanged; frozen welcome paint before connect (not interactive until event loop) (`app/startup.rs`; join after terminal; thin reorders in `app::run` / `event_loop` / `acp::connect`; `docs.rs` stamp)
 10. Concise parent `spawn_subagent` description (hybrid; `xai-tool-types` task schema + agent builder)
 11. Build: `release-local` profile for fast local installs
 12. CI: GitHub release workflow
@@ -448,7 +448,7 @@ cargo tree -p xai-grok-pager-bin --no-default-features -i brotli || true
 - Thin registration only: `slash/commands/mod.rs`, `extensions/mod.rs`, `helpers/mod.rs`, one arm each in `router` / `effects` / `task_result` / `acp_agent`; `acp_session.rs` `mod handoff` + `run_loop` arm
 - Feature bodies (prefer these over switchboards): `dispatch/session/handoff.rs`, `effects/{handoff,purge}.rs`, `session/purge.rs`, `slash/commands/{handoff,purge}.rs`, `extensions/handoff.rs`, `acp_session_impl/handoff.rs`, `session/helpers/session_handoff.rs`
 - Anything under `.okf/` if upstream ever adds the same paths (rare in public tree)
-- **Startup TTFP:** `app/mod.rs` `run` spine (auth/prefetch order), `app/startup.rs` (fork-owned), `acp/mod.rs` `connect` signature; take main’s new startup steps when possible and re-apply join-after-terminal + preloaded-config plumbing
+- **Startup TTFP:** `app/mod.rs` `run` spine (auth/prefetch order, paint-before-connect + discard-pending-input), `app/startup.rs` (fork-owned helpers: prefetch kick, config snapshot, frozen welcome / minimal skeleton paint), `app/event_loop.rs` AppInit preloaded-config arg, `acp/mod.rs` `connect` signature, `docs.rs` extract stamp; take main’s new startup steps when possible and re-apply join-after-terminal + preloaded-config + paint-before-connect
 
 ## Reducing future conflicts (fork conventions)
 

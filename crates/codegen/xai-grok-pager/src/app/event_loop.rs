@@ -741,6 +741,9 @@ pub(crate) async fn run(
         tokio::sync::oneshot::Receiver<Option<crate::update_info::UpdateAvailable>>,
     >,
     mut writer_event_rx: tokio::sync::mpsc::UnboundedReceiver<crate::render::draw::WriterEvent>,
+    // Effective config already loaded by `app::run` (post-remote). When set,
+    // AppInit skips redundant `load_effective_config` merges.
+    preloaded_config: Option<toml::Value>,
 ) -> anyhow::Result<RunResult> {
     // Initialize tracing capture. The channel `rx` will be wired to a
     // TracingModel (and ultimately a tracing pane) once integrated.
@@ -805,11 +808,15 @@ pub(crate) async fn run(
     if launch_auto {
         app.current_ui.permission_mode = Some("auto".into());
     }
-    // One effective-config read for launch-mode ownership + the display
-    // resolve below (the launch resolvers above keep their own internal read).
-    let launch_effective_ui = xai_grok_shell::config::load_effective_config()
-        .ok()
-        .and_then(|root| root.get("ui").cloned());
+    // Prefer the preloaded post-remote snapshot (no second disk merge).
+    let launch_effective_ui = preloaded_config
+        .as_ref()
+        .and_then(crate::app::startup::ui_table_from_effective)
+        .or_else(|| {
+            xai_grok_shell::config::load_effective_config()
+                .ok()
+                .and_then(|root| root.get("ui").cloned())
+        });
     // Soft-default owns the mode only when neither CLI nor effective TOML
     // claimed it; while owned, `settings/update` pushes may re-arm it.
     let cli_owns_mode = args.yolo || args.permission_mode_flag.is_some();
@@ -923,6 +930,11 @@ pub(crate) async fn run(
             "1" | "true" => Some(true),
             "0" | "false" => Some(false),
             _ => None,
+        })
+        .or_else(|| {
+            preloaded_config.as_ref().and_then(|cfg| {
+                crate::app::startup::cli_bool_from_effective(cfg, "session_picker_grouped")
+            })
         })
         .or_else(|| {
             xai_grok_shell::config::load_effective_config()
@@ -1071,12 +1083,19 @@ pub(crate) async fn run(
     let managed_config = xai_grok_shell::config::load_managed_config().ok();
 
     // Full merge when every layer parses; partial merge below if any layer fails.
-    let effective_config = match xai_grok_shell::config::load_effective_config() {
-        Ok(raw) => Some(raw),
-        Err(e) => {
-            tracing::debug!(error = %e, "failed to load effective config, using partial layers");
-            None
-        }
+    // Prefer the caller's post-remote snapshot (already merged in `app::run`).
+    let effective_config = match preloaded_config {
+        Some(raw) => Some(raw),
+        None => match xai_grok_shell::config::load_effective_config() {
+            Ok(raw) => Some(raw),
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    "failed to load effective config, using partial layers"
+                );
+                None
+            }
+        },
     };
     let compat = xai_grok_shell::agent::config::resolve_compat_sessions_from_raw(
         effective_config.as_ref().ok_or(()),
@@ -1327,9 +1346,12 @@ pub(crate) async fn run(
     crate::appearance::set_tab_width(initial_config.scrollback.display.tab_width);
     app.set_appearance(initial_config);
 
-    // Seed app state from disk once at the I/O boundary so dispatch
-    // stays sans-IO.
-    app.current_ui = load_initial_ui_config();
+    // Seed app state from the preloaded snapshot (or disk once) at the I/O
+    // boundary so dispatch stays sans-IO.
+    app.current_ui = match effective_config.as_ref() {
+        Some(root) => crate::app::startup::ui_config_from_effective(root),
+        None => load_initial_ui_config(),
+    };
     // Field-tolerant: a whole-`UiConfig` default (malformed unrelated `[ui]`
     // field) must not wipe a valid `show_timeline` or leave appearance /
     // cache / `current_ui` disagreeing — `/timeline` and the rail all read
@@ -1429,7 +1451,7 @@ pub(crate) async fn run(
             "note": "the toggle chord is scrollback-only; press Tab to focus scrollback first, or use /toggle-mouse-reporting from anywhere",
         })),
     );
-    let config_session_bools = load_initial_config_session_bools();
+    let config_session_bools = load_initial_config_session_bools(effective_config.as_ref());
     app.show_tips = config_session_bools.show_tips;
     app.auto_update = config_session_bools.auto_update;
     app.ask_user_question_timeout_enabled = config_session_bools.ask_user_question_timeout_enabled;
@@ -2853,11 +2875,23 @@ struct InitialConfigSessionBools {
     ask_user_question_timeout_enabled: Option<bool>,
 }
 
-fn load_initial_config_session_bools() -> InitialConfigSessionBools {
-    let Ok(root) = xai_grok_shell::config::load_effective_config() else {
-        return InitialConfigSessionBools::default();
+fn load_initial_config_session_bools(
+    preloaded: Option<&toml::Value>,
+) -> InitialConfigSessionBools {
+    let owned;
+    let root = match preloaded {
+        Some(r) => r,
+        None => {
+            owned = match xai_grok_shell::config::load_effective_config() {
+                Ok(r) => r,
+                Err(_) => return InitialConfigSessionBools::default(),
+            };
+            &owned
+        }
     };
-    let cli_bool = |key: &str| -> Option<bool> { root.get("cli")?.get(key)?.as_bool() };
+    let cli_bool = |key: &str| -> Option<bool> {
+        crate::app::startup::cli_bool_from_effective(root, key)
+    };
     InitialConfigSessionBools {
         show_tips: cli_bool("show_tips"),
         auto_update: cli_bool("auto_update"),
