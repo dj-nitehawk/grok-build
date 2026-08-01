@@ -172,23 +172,26 @@ pub struct ConnectFlags {
     pub default_auto_mode: bool,
 }
 /// Connect to an agent: spawn, initialize, authenticate.
-pub async fn connect(cancel: &CancellationToken, flags: ConnectFlags) -> Result<AcpConnection> {
+///
+/// `raw_config` is the effective config already loaded by the caller (same
+/// snapshot used for leader mode / connect flags). Avoids a redundant disk
+/// reload on the TUI connect path.
+pub async fn connect(
+    cancel: &CancellationToken,
+    flags: ConnectFlags,
+    raw_config: &toml::Value,
+) -> Result<AcpConnection> {
     startup::enter(StartupPhase::ConfigLoad);
-    let raw_config = {
-        let _t = xai_grok_telemetry::instrumentation::timer("startup.config_load.merge_layers");
-        xai_grok_shell::config::load_effective_config()
-            .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?
-    };
     let mut agent_config = {
         let _t = xai_grok_telemetry::instrumentation::timer("startup.config_load.parse");
-        AgentConfig::new_from_toml_cfg(&raw_config)
+        AgentConfig::new_from_toml_cfg(raw_config)
             .map_err(|e| anyhow::anyhow!("Failed to create agent config: {}", e))?
     };
     {
         let _t = xai_grok_telemetry::instrumentation::timer("startup.config_load.resolve");
         agent_config.resolve_runtime_fields(
             &xai_grok_shell::agent::config::RuntimeResolutionContext {
-                raw_config: &raw_config,
+                raw_config,
                 remote_settings: flags.remote_settings.as_ref(),
                 is_headless: false,
                 cli_subagents: Some(flags.subagents),
@@ -202,6 +205,8 @@ pub async fn connect(cancel: &CancellationToken, flags: ConnectFlags) -> Result<
             },
         );
     }
+
+    // Permission mode seeds for every session this agent creates (CLI or config)
     agent_config.default_yolo_mode = flags.default_yolo_mode;
     agent_config.default_auto_mode = flags.default_auto_mode && !flags.default_yolo_mode;
     if let Some(effort) = flags.reasoning_effort_override {
