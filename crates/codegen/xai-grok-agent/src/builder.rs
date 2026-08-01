@@ -1335,14 +1335,20 @@ fn task_model_guidance(model_slugs: &[String]) -> String {
          If the user does not explicitly request a model, omit `{TASK_MODEL_PARAM}` to inherit the parent model."
     )
 }
-/// Build the Task tool description with the effective subagent list.
+/// Build the parent-session Task / `spawn_subagent` tool description.
 ///
-/// Maps each [`SubagentEntry`] to the shared
-/// [`xai_tool_types::SubagentDescriptor`] and defers to
-/// [`xai_tool_types::build_task_description`] so the CLI and the prod chat
-/// stack share one builder. Built-in (unshadowed) entries carry the hardcoded
-/// tool-name fragment; user-defined entries carry `None` so their raw
-/// `description` is used verbatim (markdown is fine — it's model-facing text).
+/// Uses [`xai_tool_types::TaskDescriptionDetail::Concise`] so the always-on
+/// tool def stays small: type roster without tool laundry lists, short policy
+/// bullets, and a pointer to user-guide `16-subagents.md` for depth. The tool
+/// registration fallback in `xai-grok-tools` still uses
+/// [`xai_tool_types::TaskDescriptionDetail::Full`] for hosts that do not
+/// override the description.
+///
+/// Maps each [`SubagentEntry`] to a shared
+/// [`xai_tool_types::SubagentDescriptor`]. Built-in entries still carry a
+/// tools fragment for potential Full consumers, but Concise ignores it.
+/// User-defined entries carry `None` so their raw `description` is used
+/// verbatim.
 pub(crate) fn build_task_description(
     subagents: &[SubagentEntry],
     model_slugs: &[String],
@@ -1361,7 +1367,11 @@ pub(crate) fn build_task_description(
             }
         })
         .collect();
-    let mut description = xai_tool_types::build_task_description(&descriptors, &TASK_TOOL_NAMING);
+    let mut description = xai_tool_types::build_task_description_with_detail(
+        &descriptors,
+        &TASK_TOOL_NAMING,
+        xai_tool_types::TaskDescriptionDetail::Concise,
+    );
     description.push_str(&task_model_guidance(model_slugs));
     description
 }
@@ -1507,7 +1517,7 @@ mod tests {
         }
     }
     #[test]
-    fn build_task_description_builtin_includes_tools() {
+    fn build_task_description_parent_is_concise_without_tool_lists() {
         let subagents = vec![
             entry(
                 "general-purpose",
@@ -1522,16 +1532,24 @@ mod tests {
         ];
         let desc = build_task_description(&subagents, &[]);
         assert!(
-            desc.contains(xai_tool_types::GENERAL_PURPOSE_SUBAGENT.tools_template),
-            "should include general-purpose tool names"
-        );
-        assert!(
-            desc.contains(xai_tool_types::EXPLORE_SUBAGENT.tools_template),
-            "should include explore tool names"
-        );
-        assert!(
             desc.contains("- **general-purpose**: General-purpose agent."),
             "should include agent entry"
+        );
+        assert!(
+            desc.contains("- **explore**: Explore agent."),
+            "should include explore entry"
+        );
+        assert!(
+            !desc.contains(xai_tool_types::GENERAL_PURPOSE_SUBAGENT.tools_template),
+            "parent concise description must omit general-purpose tool laundry list"
+        );
+        assert!(
+            !desc.contains(xai_tool_types::EXPLORE_SUBAGENT.tools_template),
+            "parent concise description must omit explore tool laundry list"
+        );
+        assert!(
+            desc.contains("16-subagents.md"),
+            "should point at on-demand user-guide detail"
         );
     }
     #[test]
@@ -1589,6 +1607,27 @@ mod tests {
         );
     }
     #[test]
+    fn build_task_description_contains_header_and_footer() {
+        let subagents = vec![entry(
+            "explore",
+            "Explore.",
+            SubagentSource::Builtin(BuiltinAgentName::Explore),
+        )];
+        let desc = build_task_description(&subagents, &[]);
+        assert!(
+            desc.contains("Start a subagent that works on a task independently"),
+            "should contain header"
+        );
+        assert!(
+            desc.contains("Usage:"),
+            "concise parent description should contain Usage section"
+        );
+        assert!(
+            !desc.contains("## Usage notes"),
+            "parent should not use the Full essay header"
+        );
+    }
+    #[test]
     fn build_task_description_uses_template_variables() {
         let subagents = vec![entry(
             "explore",
@@ -1597,20 +1636,25 @@ mod tests {
         )];
         let desc = build_task_description(&subagents, &[]);
         assert!(
-            desc.contains("${{ tools.by_kind.task }}"),
-            "should use tools.by_kind.task template variable"
-        );
-        assert!(
-            desc.contains("${{ tools.by_kind.read }}"),
-            "should use tools.by_kind.read template variable"
-        );
-        assert!(
             desc.contains("${{ params.task.subagent_type }}"),
             "should use params.task.subagent_type template variable"
         );
         assert!(
+            desc.contains("${{ params.task.run_in_background }}")
+                || desc.contains("${{ tools.by_kind.background_task_action }}"),
+            "should reference background param or retrieval tool"
+        );
+        assert!(
             desc.contains("${{ params.task.model }}"),
             "should use params.task.model template variable"
+        );
+        assert!(
+            desc.contains("${{ params.task.resume_from }}"),
+            "should use params.task.resume_from template variable"
+        );
+        assert!(
+            desc.contains("${{ params.task.isolation }}"),
+            "should use params.task.isolation template variable"
         );
     }
     #[test]
@@ -1675,12 +1719,16 @@ mod tests {
         )];
         let desc = build_task_description(&subagents, &[]);
         assert!(
-            desc.contains("resume_from"),
+            desc.contains("${{ params.task.resume_from }}"),
             "should reference the resume_from parameter"
         );
         assert!(
-            desc.contains("subagent_type"),
-            "should reference the subagent_type parameter"
+            desc.contains("completed child") || desc.contains("same"),
+            "should state resume continues a completed child with matching type"
+        );
+        assert!(
+            desc.contains("delta"),
+            "should tell the model to pass only the delta on resume"
         );
     }
     /// The bridge's full-discovery snapshot must record every discovered
