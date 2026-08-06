@@ -284,6 +284,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "memory")]
     #[test]
     fn test_on_session_end_writes_summary() {
         let tmp = TempDir::new().unwrap();
@@ -320,6 +321,7 @@ mod tests {
         assert!(!session_files.is_empty(), "session log file should exist");
     }
 
+    #[cfg(feature = "memory")]
     #[test]
     fn test_on_session_end_summary_has_structure() {
         let tmp = TempDir::new().unwrap();
@@ -483,6 +485,7 @@ mod tests {
 
     /// With a real synthetic prefix + two real queries the session IS written,
     /// and the slug is derived from the first real query (not the prefix text).
+    #[cfg(feature = "memory")]
     #[test]
     fn test_slug_derived_from_real_query_not_prefix() {
         let tmp = TempDir::new().unwrap();
@@ -518,6 +521,7 @@ mod tests {
     }
 
     /// Topics in the summary contain real query text, not the metadata prefix.
+    #[cfg(feature = "memory")]
     #[test]
     fn test_topics_contain_real_queries_not_metadata() {
         let tmp = TempDir::new().unwrap();
@@ -595,6 +599,7 @@ mod tests {
     }
 
     /// Long Unicode user queries are truncated at a character boundary, never a byte boundary.
+    #[cfg(feature = "memory")]
     #[test]
     fn test_topics_unicode_truncation_no_panic() {
         let tmp = TempDir::new().unwrap();

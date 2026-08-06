@@ -92,6 +92,7 @@ pub(crate) fn git_head_dedup_key(
 }
 
 /// Convert to codebase graph `FileEvent` for incremental index updates.
+#[cfg(feature = "codebase-graph")]
 fn fs_event_to_codebase_graph_event(
     paths: &[PathBuf],
     kind: FsEventKind,
@@ -156,6 +157,7 @@ fn fs_event_to_delta(
 
 const GIT_DIFF_REBUILD_THRESHOLD: usize = 500;
 
+#[cfg(feature = "codebase-graph")]
 fn parse_diff_name_status_line(
     line: &str,
     repo_root: &Path,
@@ -182,8 +184,17 @@ fn parse_diff_name_status_line(
 
 /// After a HEAD change, diff ORIG_HEAD..HEAD and send targeted events
 /// to the codebase graph. Falls back to full rebuild if too many changes.
+#[cfg(not(feature = "codebase-graph"))]
 async fn refresh_codebase_graph_after_head_change(
-    idx: &xai_codebase_graph::IndexManagerHandle,
+    _idx: &xai_grok_workspace::file_system::CodebaseIndexHandle,
+    _repo_root: &Path,
+) {
+}
+#[cfg(feature = "codebase-graph")]
+/// After a HEAD change, diff ORIG_HEAD..HEAD and send targeted events
+/// to the codebase graph. Falls back to full rebuild if too many changes.
+async fn refresh_codebase_graph_after_head_change(
+    idx: &xai_grok_workspace::file_system::CodebaseIndexHandle,
     repo_root: &Path,
 ) {
     let mut cmd = tokio::process::Command::new("git");
@@ -474,15 +485,27 @@ struct CodebaseIndex {
 
 impl CodebaseIndex {
     fn on_change(&self, paths: &[PathBuf], kind: FsEventKind) {
+        #[cfg(feature = "codebase-graph")]
         if let Some(idx) = self.indexes.lock().get(&self.root) {
             let _ = idx.send_event(fs_event_to_codebase_graph_event(paths, kind));
+        }
+        #[cfg(not(feature = "codebase-graph"))]
+        {
+            let _ = (self, paths, kind);
         }
     }
 
     async fn rebuild_after_head_change(&self) {
-        let idx = self.indexes.lock().get(&self.root);
-        if let Some(idx) = idx {
-            refresh_codebase_graph_after_head_change(&idx, &self.root).await;
+        #[cfg(feature = "codebase-graph")]
+        {
+            let idx = self.indexes.lock().get(&self.root);
+            if let Some(idx) = idx {
+                refresh_codebase_graph_after_head_change(&idx, &self.root).await;
+            }
+        }
+        #[cfg(not(feature = "codebase-graph"))]
+        {
+            let _ = self;
         }
     }
 }
@@ -1078,6 +1101,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "codebase-graph")]
     #[test]
     fn parse_diff_name_status() {
         use xai_codebase_graph::FileEventKind;

@@ -585,6 +585,7 @@ impl ToolServerBuilder {
             disconnect_epoch,
             admission,
             cancels: Arc::new(DashMap::new()),
+            #[cfg(feature = "telemetry-donate")]
             donation_pumps: parking_lot::Mutex::new(DonationPumps::default()),
         });
         Ok(ToolServer { inner: Some(inner) })
@@ -677,12 +678,14 @@ struct ToolServerInner {
     cancels: Arc<DashMap<SessionId, Arc<CancelRegistry>>>,
     /// Trace/log/metric donation pump senders, fenced by
     /// [`ToolServer::flush_donations`] on unbind/shutdown.
+    #[cfg(feature = "telemetry-donate")]
     donation_pumps: parking_lot::Mutex<DonationPumps>,
 }
 
 /// The three symmetric donation pump senders. Each is fenced
 /// independently by `flush_donations_inner` so a teardown never abandons
 /// a queued batch.
+#[cfg(feature = "telemetry-donate")]
 #[derive(Default)]
 struct DonationPumps {
     traces: Option<mpsc::Sender<crate::donate_pump::PumpMsg>>,
@@ -1667,10 +1670,12 @@ impl ToolServer {
         Ok(())
     }
 
+    #[cfg(feature = "telemetry-donate")]
     pub(crate) fn set_donation_pump(&self, tx: mpsc::Sender<crate::donate_pump::PumpMsg>) {
         self.inner().donation_pumps.lock().traces = Some(tx);
     }
 
+    #[cfg(feature = "telemetry-donate")]
     pub(crate) fn set_log_donation_pump(&self, tx: mpsc::Sender<crate::donate_pump::PumpMsg>) {
         self.inner().donation_pumps.lock().logs = Some(tx);
     }
@@ -1696,6 +1701,7 @@ impl ToolServer {
 }
 
 /// Fence each donation pump. `clear_pumps` only from `shutdown` / `Drop`.
+#[cfg(feature = "telemetry-donate")]
 async fn flush_donations_inner(inner: &ToolServerInner, clear_pumps: bool) {
     let (traces, logs, metrics) = {
         let pumps = inner.donation_pumps.lock();
@@ -1731,6 +1737,11 @@ async fn flush_donations_inner(inner: &ToolServerInner, clear_pumps: bool) {
         #[cfg(feature = "metrics")]
         crate::metric_donate::clear_active_exporter();
     }
+}
+
+#[cfg(not(feature = "telemetry-donate"))]
+async fn flush_donations_inner(_inner: &ToolServerInner, _clear_pumps: bool) {
+    // Donation stack not compiled in.
 }
 
 impl Drop for ToolServer {

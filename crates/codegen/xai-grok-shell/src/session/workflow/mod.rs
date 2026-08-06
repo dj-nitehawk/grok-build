@@ -6,7 +6,7 @@ pub(crate) mod schema_contract;
 pub(crate) mod store;
 pub(crate) mod tracker;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "workflows"))]
 mod builtin_tests {
     #[test]
     fn every_builtin_validates_and_matches_its_registered_name() {

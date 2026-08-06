@@ -10,6 +10,26 @@ authors = ["xAI"]
 default = []
 default-bazel = []
 memory-log = []
+# Sentry error reporting (panic/backtrace upload). Fork slim leaves this off.
+export-sentry = ["dep:sentry"]
+# Internal OTLP span layer + external customer OTEL stream (OTLP/logs/metrics).
+# Fork slim leaves this off. Residual opentelemetry may still enter the product
+# graph is optional via hub-telemetry / xai-tracing `otlp` / file-utils
+# `otel-context` (default off on slim product-full path).
+export-otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-http",
+    "dep:webpki-roots",
+    "dep:base64",
+    "dep:http",
+    "dep:bytes",
+    "dep:async-trait",
+    "dep:futures-executor",
+    "dep:tokio-stream",
+    "dep:tracing-opentelemetry",
+]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -39,7 +59,8 @@ xai-grok-extra-ca = { workspace = true }
 xai-grok-sampler = { workspace = true }
 xai-token-estimation = { workspace = true }
 dirs = { workspace = true }
-sentry = { version = "0.42.0", default-features = false, features = [
+# Optional: Sentry backends (feature `export-sentry`). Facade stays via stub.
+sentry = { version = "0.42.0", default-features = false, optional = true, features = [
     "panic",
     "anyhow",
     "tracing",
@@ -64,32 +85,33 @@ mid = "4.0.0"
 tokio = { workspace = true, features = ["macros", "sync", "rt"] }
 parking_lot = { workspace = true }
 xai-grok-auth = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true, features = [
+# Optional OTEL export stack (feature `export-otel`). Stubs keep call sites.
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true, features = [
     "experimental_logs_batch_log_processor_with_async_runtime",
     "experimental_metrics_periodicreader_with_async_runtime",
     "rt-tokio-current-thread",
 ] }
-# `tls-aws-lc` compiles opentelemetry-otlp's TLS support for the gRPC
+# `tls-ring` compiles opentelemetry-otlp's TLS support for the gRPC
 # transport. The workspace default is only `tls-roots`, which since otlp 0.32
 # no longer implies a TLS provider feature — without one, every `https://`
 # gRPC collector endpoint is rejected at exporter build time (GB-4580).
-# aws-lc matches the TLS backend the workspace `tonic` already uses.
-opentelemetry-otlp = { workspace = true, features = ["tls-aws-lc"] }
-opentelemetry-http = { workspace = true }
+# ring matches the workspace tonic `tls-ring` + product rustls pin.
+opentelemetry-otlp = { workspace = true, optional = true, features = ["tls-ring"] }
+opentelemetry-http = { workspace = true, optional = true }
 # Embedded Mozilla trust anchors for the gRPC TLS fallback: keeps `https://`
 # collectors working on hosts with no readable system CA store (parity with
 # the HTTP transport's embedded-roots reqwest client in `otlp_http.rs`).
-webpki-roots = { workspace = true }
+webpki-roots = { workspace = true, optional = true }
 # Re-encodes the validated GROK_EXTRA_CA_BUNDLE DERs as PEM for tonic's
 # `Certificate::from_pem` (the gRPC transport's extra-CA parity with HTTP).
-base64 = { workspace = true }
-http = { workspace = true }
-bytes = { workspace = true }
-async-trait = { workspace = true }
-futures-executor = "0.3"
-tokio-stream = { workspace = true }
-tracing-opentelemetry = { workspace = true }
+base64 = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+futures-executor = { version = "0.3", optional = true }
+tokio-stream = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Pre-main unified-log redirect for this crate's own test binary.
@@ -97,8 +119,7 @@ ctor = { workspace = true }
 tonic = { workspace = true, features = ["transport"] }
 # Self-signed CA + server cert for the TLS collector fixture
 # (tests/external_otlp_grpc_tls.rs). `rustls` pins the process-default crypto
-# provider there: the test binary links both ring and aws-lc-rs, so rustls
-# can't auto-select one for the server-side acceptor.
+# provider there (ring-only workspace pin; install before acceptor setup).
 rcgen = { workspace = true }
 rustls = { workspace = true }
 # In-memory log/metric exporters for the external-stream wire-shape tests.
@@ -112,6 +133,26 @@ tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "tim
 filetime = { workspace = true }
 futures-executor = "0.3"
 tempfile = { workspace = true }
+
+# OTLP wire tests need the real export backends (feature `export-otel`).
+[[test]]
+name = "external_otlp"
+required-features = ["export-otel"]
+[[test]]
+name = "external_otlp_gates_on"
+required-features = ["export-otel"]
+[[test]]
+name = "external_otlp_grpc"
+required-features = ["export-otel"]
+[[test]]
+name = "external_otlp_guard"
+required-features = ["export-otel"]
+[[test]]
+name = "external_otlp_session_ctx"
+required-features = ["export-otel"]
+[[test]]
+name = "external_otlp_grpc_tls"
+required-features = ["export-otel"]
 
 [lints]
 workspace = true

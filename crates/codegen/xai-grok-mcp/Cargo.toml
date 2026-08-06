@@ -7,12 +7,16 @@ description = "MCP integration crate. Quarantines rmcp + reqwest 0.13 (rmcp 2.1 
 authors = ["xAI"]
 
 [dependencies]
+# Fork slim Phase 8a: use rustls-no-provider so MCP does not pull aws-lc-sys.
+# Process-level CryptoProvider is installed as ring in pager-bin/main (and
+# workspace_server). `reqwest-tls-no-provider` avoids rmcp's default
+# `reqwest?/rustls` (aws-lc) feature.
 rmcp = { version = "2.1", features = [
     "auth",
     "client",
     "transport-async-rw",
     "transport-streamable-http-client-reqwest",
-    "reqwest",
+    "reqwest-tls-no-provider",
 ] }
 xai-grok-extra-ca = { workspace = true }
 xai-grok-version = { workspace = true }
@@ -20,10 +24,11 @@ xai-grok-version = { workspace = true }
 # - `blocking` is for build-script style use (not actually used here today, but
 #   kept for future MCP transports that may need it).
 # - `query`/`form` opt-in features stay off; rmcp transports don't use them.
+# - `rustls-no-provider` (not `rustls`/aws-lc): ring is process-installed.
 reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
     "json",
-    "rustls",
+    "rustls-no-provider",
     "stream",
 ] }
 

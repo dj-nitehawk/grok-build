@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
-use prometheus::{IntCounter, IntCounterVec, register_int_counter, register_int_counter_vec};
+use crate::prometheus_facade::{IntCounter, IntCounterVec, register_int_counter, register_int_counter_vec};
 use xai_file_utils::queue::{
     DEFAULT_MAX_AGE, EnqueueOutcome, QueueItemSidecar, SIDECAR_SUFFIX, UploadQueue,
     temp_path_for_sidecar, try_remove_temp,

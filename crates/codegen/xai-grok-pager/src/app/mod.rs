@@ -605,7 +605,7 @@ async fn bounded_connect(
 pub async fn run(
     args: PagerArgs,
     bg_update_rx: Option<
-        tokio::sync::oneshot::Receiver<Option<xai_grok_update::auto_update::UpdateAvailable>>,
+        tokio::sync::oneshot::Receiver<Option<crate::update_info::UpdateAvailable>>,
     >,
 ) -> anyhow::Result<bool> {
     xai_tty_utils::redirect_native_stderr();

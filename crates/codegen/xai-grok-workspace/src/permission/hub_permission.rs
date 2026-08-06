@@ -5,7 +5,7 @@
 use crate::permission::prompter::{PromptOutcome, tool_name_for_access};
 use crate::permission::types::AccessKind;
 use async_trait::async_trait;
-use prometheus::{HistogramVec, IntCounter, register_histogram_vec, register_int_counter};
+use crate::prometheus_facade::{HistogramVec, IntCounter, register_histogram_vec, register_int_counter};
 use serde_json::Value;
 use std::sync::LazyLock;
 use xai_computer_hub_sdk::harness::PERMISSION_REQUEST_KIND;

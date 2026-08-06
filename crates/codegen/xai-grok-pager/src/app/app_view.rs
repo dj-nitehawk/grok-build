@@ -1217,12 +1217,12 @@ pub struct AppView {
     /// and capture may start. Cleared on exit or when the remote flag turns off.
     pub voice_ui_active: bool,
     /// Optional `[voice]` overrides from config (`api_base`, `language`, …).
-    pub voice_config: xai_grok_voice::VoiceConfig,
+    pub voice_config: crate::voice_rt::VoiceConfig,
     /// Auth for STT (OAuth session via shell `AuthManager`, or `XAI_API_KEY`).
     /// `None` until the pipeline is first started (lazy on `/voice`).
-    pub voice_auth: Option<xai_grok_voice::SharedVoiceAuth>,
+    pub voice_auth: Option<crate::voice_rt::SharedVoiceAuth>,
     /// Commands into the voice pipeline (start/stop capture — toggle, not hold).
-    pub voice_cmd_tx: Option<tokio::sync::mpsc::Sender<xai_grok_voice::VoiceCommand>>,
+    pub voice_cmd_tx: Option<tokio::sync::mpsc::Sender<crate::voice_rt::VoiceCommand>>,
     /// The dictation lifecycle (idle / queued / recording / stopping), including
     /// the live interim transcript. One state at a time, so inconsistent
     /// combinations are unrepresentable; production mutates it only through the
@@ -1630,7 +1630,7 @@ impl AppView {
             keyboard_normalizer: KeyboardNormalizer::from_terminal_context(),
             voice_mode_enabled: false,
             voice_ui_active: false,
-            voice_config: xai_grok_voice::VoiceConfig::default(),
+            voice_config: crate::voice_rt::VoiceConfig::default(),
             voice_auth: None,
             voice_cmd_tx: None,
             voice_state: VoiceState::Idle,
@@ -1661,7 +1661,7 @@ impl AppView {
     /// `/voice`). Gated on the voice gate + a build that compiled in audio
     /// capture. Free-tier upsell is separate ([`Self::is_voice_tier_restricted`]).
     pub fn voice_can_start_pipeline(&self) -> bool {
-        self.voice_mode_enabled && xai_grok_voice::AUDIO_SUPPORTED
+        self.voice_mode_enabled && crate::voice_rt::AUDIO_SUPPORTED
     }
     /// Sync voice availability into slash surfaces, cheatsheet, and settings.
     /// Mirrors `apply_session_recap_available` for `/recap`.
@@ -1790,7 +1790,7 @@ impl AppView {
         self.voice_state.interim()
     }
     /// Best-effort one-shot command into the voice pipeline (no-op if it isn't up).
-    fn voice_send(&self, cmd: xai_grok_voice::VoiceCommand) {
+    fn voice_send(&self, cmd: crate::voice_rt::VoiceCommand) {
         if let Some(tx) = &self.voice_cmd_tx
             && tx.try_send(cmd).is_err()
         {
@@ -1800,7 +1800,7 @@ impl AppView {
     /// Open the mic now (pipeline already up) and enter [`VoiceState::Recording`]
     /// bound to `target`. `hold` marks a Ctrl+Space hold-press start.
     pub(crate) fn voice_begin_recording(&mut self, target: VoiceTarget, hold: bool) {
-        self.voice_send(xai_grok_voice::VoiceCommand::PttPress);
+        self.voice_send(crate::voice_rt::VoiceCommand::PttPress);
         self.voice_state = VoiceState::Recording {
             hold,
             target,
@@ -1840,14 +1840,14 @@ impl AppView {
         };
         let target = *target;
         let interim = interim.take();
-        self.voice_send(xai_grok_voice::VoiceCommand::PttRelease);
+        self.voice_send(crate::voice_rt::VoiceCommand::PttRelease);
         self.voice_state = VoiceState::Stopping { target, interim };
     }
     /// Hard teardown (submit / error / kill-switch / navigate-away): release the
     /// mic and forget the session — no trailing final, no queued start.
     pub(crate) fn voice_reset(&mut self) {
         if self.voice_state.listening() {
-            self.voice_send(xai_grok_voice::VoiceCommand::PttRelease);
+            self.voice_send(crate::voice_rt::VoiceCommand::PttRelease);
         }
         self.voice_state = VoiceState::Idle;
     }
@@ -6174,7 +6174,7 @@ pub(crate) mod tests {
             keyboard_normalizer: KeyboardNormalizer::from_terminal_context(),
             voice_mode_enabled: false,
             voice_ui_active: false,
-            voice_config: xai_grok_voice::VoiceConfig::default(),
+            voice_config: crate::voice_rt::VoiceConfig::default(),
             voice_auth: None,
             voice_cmd_tx: None,
             voice_state: VoiceState::Idle,

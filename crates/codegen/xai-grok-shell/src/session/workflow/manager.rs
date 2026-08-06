@@ -807,7 +807,8 @@ fn run_ended_status(
     }
 }
 
-#[cfg(test)]
+/// Manager launch/resume paths need the Rhai engine (`workflows` feature).
+#[cfg(all(test, feature = "workflows"))]
 mod tests {
     use super::*;
     use crate::session::persistence::PersistenceMsg;

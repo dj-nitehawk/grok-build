@@ -366,7 +366,7 @@ Ship a **lighter** `xai-grok-pager` on `dev` by compiling out optional product s
 | web_fetch | tools `web-fetch` (shell/agent forward) | **off** | keep types; omit registration + HTML deps |
 | PPTX extract | tools `pptx` (shell forward) | **off** | `read_file` arm only; PDF is separate |
 | System power | shell `system-power` | **off** | auth sleep-gate no-op; accept rare re-auth after suspend |
-| Product TLS | tonic `tls-ring` + MCP `rustls-no-provider` | **ring** | residual `aws-lc-sys` may remain via nono/sigstore (sandbox), not dual rustls |
+| Product TLS | workspace `rustls` ring-only + tonic `tls-ring` + MCP `rustls-no-provider` + OTLP `tls-ring` | **ring** | residual `aws-lc-sys` via nono/sigstore (sandbox); may feature-unify `rustls-webpki/aws-lc-rs` but product `rustls` stays ring-only |
 | System theme | pager-render `system-theme` | **off** | optional `dark-light`; no `ashpd`/`zbus` when power also off |
 | Syntax highlight | workspace syntect `default-fancy` | **on (lighter)** | keep highlighting; drop Oniguruma (`onig`/`onig_sys`); pure-Rust fancy-regex |
 | Pager minimal | bin `pager-minimal` | **off** | optional `xai-grok-pager-minimal`; fork does not use minimal mode |
@@ -404,8 +404,11 @@ for c in pdf_oxide rhai aws-sdk-s3 gcloud-storage sentry opentelemetry fastrace-
 do
   cargo tree -p xai-grok-pager-bin --no-default-features -i "$c" || true
 done
-# product TLS prefers ring; residual aws-lc via nono/sigstore (sandbox) is accepted
+# product TLS is ring-only; residual aws-lc via nono/sigstore (sandbox) is accepted
 cargo tree -p xai-grok-pager-bin --no-default-features -i ring || true
+cargo tree -p xai-grok-pager-bin --no-default-features -i aws-lc-sys || true
+# brotli only when web-fetch / product-full enables tools compression
+cargo tree -p xai-grok-pager-bin --no-default-features -i brotli || true
 ```
 
 ### Conflict hotspots (strip)
