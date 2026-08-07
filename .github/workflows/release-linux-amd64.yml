@@ -1,0 +1,196 @@
+# Build and publish a linux/amd64 binary when a version tag is pushed.
+#
+# Triggers: tags matching `v*` (lowercase v only; GitHub tag globs are
+# case-sensitive). The tagged commit must be reachable from `origin/dev`
+# (tags are not branch-scoped in git; this enforces the "on dev" policy).
+#
+# Artifact: zipped `grok` binary uploaded as a GitHub Release asset.
+
+name: Release linux/amd64
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-linux-amd64-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  PACKAGE: xai-grok-pager-bin
+  PROFILE: release-dist
+  CARGO_BIN: xai-grok-pager
+  SHIP_NAME: grok
+  TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  release:
+    name: Build and release (linux/amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so we can verify the tag commit is on dev.
+          fetch-depth: 0
+
+      - name: Verify tag is on origin/dev
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in
+            v*) ;;
+            *)
+              echo "error: tag must start with lowercase 'v' (got: $TAG)" >&2
+              exit 1
+              ;;
+          esac
+
+          git fetch origin dev --prune
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/dev; then
+            echo "error: tag ${TAG} (${GITHUB_SHA}) is not on origin/dev" >&2
+            echo "Release tags must point at a commit reachable from the dev branch." >&2
+            exit 1
+          fi
+          echo "OK: ${TAG} @ ${GITHUB_SHA} is on origin/dev"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            zip
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          # Must match rust-toolchain.toml channel (action requires explicit toolchain).
+          toolchain: "1.94.0"
+          targets: ${{ env.TARGET }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-linux-amd64
+          # release-dist artifacts are large; cache registries/git only.
+          cache-targets: false
+
+      - name: Install DotSlash (hermetic protoc)
+        run: |
+          set -euo pipefail
+          # Prebuilt is much faster than `cargo install dotslash` on CI.
+          DOTSLASH_VERSION="0.5.2"
+          curl -fsSL \
+            "https://github.com/facebook/dotslash/releases/download/v${DOTSLASH_VERSION}/dotslash-ubuntu-22.04.x86_64.v${DOTSLASH_VERSION}.tar.gz" \
+            | tar -xz -C /usr/local/bin
+          /usr/bin/env dotslash --help >/dev/null
+          # Warm hermetic protoc so build.rs does not fail obscurely.
+          ./bin/protoc --version
+
+      - name: Build release binary
+        run: |
+          set -euo pipefail
+          cargo build \
+            -p "${PACKAGE}" \
+            --profile "${PROFILE}" \
+            --target "${TARGET}"
+          BIN="target/${TARGET}/${PROFILE}/${CARGO_BIN}"
+          test -x "${BIN}"
+          # Optional strip for a smaller zip; release-dist already optimizes hard.
+          strip -s "${BIN}" || strip "${BIN}"
+          ls -lh "${BIN}"
+
+      - name: Package zip
+        id: package
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          BIN="target/${TARGET}/${PROFILE}/${CARGO_BIN}"
+          STAGE="$(mktemp -d)"
+          OUT_DIR="${GITHUB_WORKSPACE}/dist"
+          mkdir -p "${OUT_DIR}"
+
+          # Ship as `grok` (product name); cargo artifact stays xai-grok-pager.
+          cp "${BIN}" "${STAGE}/${SHIP_NAME}"
+          chmod 755 "${STAGE}/${SHIP_NAME}"
+
+          ZIP_NAME="${SHIP_NAME}-${TAG}-linux-amd64.zip"
+          ZIP_PATH="${OUT_DIR}/${ZIP_NAME}"
+          (cd "${STAGE}" && zip -9 "${ZIP_PATH}" "${SHIP_NAME}")
+
+          ls -lh "${ZIP_PATH}"
+          echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "zip_name=${ZIP_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          set -euo pipefail
+          # Tag v0.2.121 → section heading "# 0.2.121 — …" in the shell changelog.
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          CHANGELOG="crates/codegen/xai-grok-shell/CHANGELOG.md"
+          NOTES_PATH="${GITHUB_WORKSPACE}/dist/release-notes.md"
+
+          if [[ ! -f "${CHANGELOG}" ]]; then
+            echo "error: missing ${CHANGELOG}" >&2
+            exit 1
+          fi
+
+          # Version headings are top-level H1: "# 0.2.121 — 2026-08-05"
+          # Stop at the next version H1 (digit after "# "), not "## Features".
+          awk -v ver="${VERSION}" '
+            BEGIN { found = 0 }
+            $0 ~ ("^# " ver "([[:space:]]|$)") {
+              found = 1
+              print
+              next
+            }
+            found && /^# [0-9]/ { exit }
+            found { print }
+          ' "${CHANGELOG}" > "${NOTES_PATH}"
+
+          if [[ ! -s "${NOTES_PATH}" ]]; then
+            echo "error: no CHANGELOG section for version ${VERSION} (tag ${TAG})" >&2
+            echo "Expected a heading like: # ${VERSION} — YYYY-MM-DD" >&2
+            exit 1
+          fi
+
+          # Drop trailing blank lines for a cleaner Release body.
+          # (portable: rewrite via awk rather than GNU sed -i quirks)
+          awk '
+            { lines[NR] = $0 }
+            END {
+              end = NR
+              while (end > 0 && lines[end] ~ /^[[:space:]]*$/) end--
+              for (i = 1; i <= end; i++) print lines[i]
+            }
+          ' "${NOTES_PATH}" > "${NOTES_PATH}.trim"
+          mv "${NOTES_PATH}.trim" "${NOTES_PATH}"
+
+          echo "---- release notes preview ----"
+          head -n 40 "${NOTES_PATH}"
+          echo "---- end preview (${NOTES_PATH}) ----"
+          echo "body_path=${NOTES_PATH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          # Body from CHANGELOG section for this version (not auto PR/commit notes).
+          body_path: ${{ steps.notes.outputs.body_path }}
+          generate_release_notes: false
+          # Pre-release for non-semver-looking tags is left false; edit on GH if needed.
+          files: ${{ steps.package.outputs.zip_path }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
