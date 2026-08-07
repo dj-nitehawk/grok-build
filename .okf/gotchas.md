@@ -20,7 +20,7 @@ tags: [gotcha]
 - **External PRs are not accepted** (`CONTRIBUTING.md`). Do not design workflows around community contribution.
 - **Sandbox default is off.** Tests or demos that assume confinement must set `--sandbox` / config explicitly.
 - **Clippy config does not merge.** Nearest `clippy.toml` wins; codegen-oriented bans live at repo root for this tree.
-- **release vs release-dist.** Local `--release` is not the hardened dist profile; shipping uses `release-dist` (and related aliases).
+- **release vs release-dist vs release-local.** Local `--release` is not the hardened dist profile; shipping uses `release-dist`. Local install script uses `release-local` (faster: no LTO, CGU=8, no debug).
 - **SOURCE_REV** identifies monorepo provenance; it is not a crates.io version by itself.
 - **Fork branch model:** `main` is a pure upstream mirror (`origin/main`); local customizations live only on `dev`. When `origin/main` advances, follow [Fork Sync](fork-sync.md) (ff `main`, rebase `dev`, force-with-lease push `dev` only after confirm). Do not put custom commits on `main`.
 - **Always-keep system prompt templates:** never take upstream (or auto-merged) content for `crates/codegen/xai-grok-agent/templates/prompt.md` or `subagent_prompt.md`. On every fork sync, restore both from the pre-sync `dev` backup branch even if git reported no conflict. Details: [Fork Sync](fork-sync.md#always-keep-fork-prompt-templates).

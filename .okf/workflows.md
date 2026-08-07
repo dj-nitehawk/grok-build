@@ -42,7 +42,13 @@ cargo build -p xai-grok-pager-bin --profile release-dist
 cargo grok-slim   # release-dist + --no-default-features (fork alias)
 ```
 
-Profiles of note (root `Cargo.toml`): `release`, `release-dist`, `release-dist-jemalloc`, `x-prod`, `dev` (panic=abort on release/dev product profiles as configured).
+Fast local install profile (no LTO, CGU=8, debug=0; used by `/home/SOFTWARE/grok/build-release.sh`):
+
+```sh
+cargo build -p xai-grok-pager-bin --profile release-local
+```
+
+Profiles of note (root `Cargo.toml`): `release`, `release-dist`, `release-local`, `release-dist-jemalloc`, `x-prod`, `dev` (panic=abort on release/dev product profiles as configured).
 
 First launch of the TUI typically opens a browser for authentication (see user guide auth page).
 
