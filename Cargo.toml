@@ -367,6 +367,15 @@ strip = false
 debug = 1
 split-debuginfo = "off"
 
+# Fast local install profile (see /home/SOFTWARE/grok/build-release.sh).
+# Trades max shipping optimization for wall-clock build time: no LTO, more CGUs,
+# no debug info. Runtime is still a normal --release-class binary.
+[profile.release-local]
+inherits = "release"
+lto = false
+codegen-units = 8
+debug = 0
+
 # Production profile for latency-sensitive x-product services (VF, home-mixer).
 # Thin LTO gives ~90% of full LTO benefit at significantly faster link time.
 # Keeps symbols + line tables for prod debuggability (perf, flamegraph, stack traces).
