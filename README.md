@@ -2,9 +2,9 @@
 
 # Grok Build (`grok`): enhanced fork
 
-**A leaner, faster, more controllable build of [SpaceXAI's terminal AI coding agent](https://x.ai/cli).**
+**A faster, more controllable build of [SpaceXAI's terminal AI coding agent](https://x.ai/cli).**
 
-Same product core. Tuned for people who live in the TUI: less binary weight, less context noise, cleaner sessions, and sharper agent defaults.
+Same product core. Tuned for people who live in the TUI: less context noise, cleaner sessions, and sharper agent defaults.
 
 [Download the binary](#download-the-binary) ·
 [Why this build](#why-this-build) ·
@@ -42,7 +42,7 @@ For ChatGPT Plus/Pro, sign in separately with `grok chatgpt-login`; see
 
 | | Stock Grok Build | **This fork** |
 |---|---|---|
-| **Binary** | Full product matrix (voice, mermaid, PDF, cloud SDKs, telemetry export) | **Slim by default**: optional surfaces compile out; sandbox enforcement stays on |
+| **Capabilities** | Normal upstream product defaults | **Same capability defaults**, with the fork customizations below |
 | **Startup** | Standard connect path | **Faster time-to-first-paint**: welcome paints before connect (input after backend ready); config reuse + nonblocking auth/prefetch |
 | **Agent prompts** | Upstream defaults | **Custom system prompts** tuned for careful, high-signal coding work |
 | **ChatGPT** | No fork Codex integration | **GPT-6 Astra and GPT-6 Sol via ChatGPT Plus/Pro**, using an unofficial Codex backend |
@@ -62,18 +62,23 @@ Upstream product docs and the monorepo tree still apply. This fork tracks
 
 ## What's customized
 
-### Leaner product binary
+### Upstream capabilities retained
 
-Optional capabilities are feature-gated and **off by default** on this branch:
-PDF, cloud upload SDKs, Mermaid, voice, product memory engine, workflow Rhai,
-heavy telemetry export, plugin marketplace auto-update, extra image codecs, and
-more. Core agent, MCP, tools, and **sandbox enforcement** stay.
+Broad binary slimming has been retired. Normal builds use the upstream
+capability graph, including voice, Mermaid, PDF, workflows, memory, marketplace,
+auto-update, and telemetry code. Availability at runtime still follows upstream
+configuration, authentication, and platform support.
 
-```sh
-cargo run -p xai-grok-pager-bin              # slim defaults
-cargo check -p xai-grok-pager-bin --features product-full   # full matrix when you need it
-cargo grok-slim                              # release-dist slim binary
-```
+Auto-update and telemetry support follow upstream runtime controls. Release
+builds can install stock upstream into `$GROK_HOME/bin`, including when launched
+from a separate fork installation. To retain this fork, set `[cli] auto_update =
+false` in `config.toml`, pass `--no-auto-update`, or set
+`GROK_DISABLE_AUTOUPDATER=1`. Explicit `grok update` still installs upstream;
+upgrade this fork through its GitHub Releases or a local rebuild.
+
+Product telemetry defaults to disabled, with environment, configuration,
+requirements, and remote settings determining the effective policy. Review the
+existing controls in the [configuration guide](crates/codegen/xai-grok-pager/docs/user-guide/05-configuration.md).
 
 ### ChatGPT subscription support
 
@@ -199,7 +204,7 @@ macOS and Linux are supported build hosts. Windows from this tree is best-effort
 | In-tree user guide | [`crates/codegen/xai-grok-pager/docs/user-guide/`](crates/codegen/xai-grok-pager/docs/user-guide/) |
 | Official product docs | [docs.x.ai/build](https://docs.x.ai/build/overview) |
 | Upstream product page | [x.ai/cli](https://x.ai/cli) |
-| Fork ops / slim policy | [`.okf/`](.okf/) (agents & maintainers) |
+| Fork operations | [`.okf/`](.okf/) (agents & maintainers) |
 
 Useful guide pages for fork features: [ChatGPT Plus/Pro](crates/codegen/xai-grok-pager/docs/user-guide/chatgpt.md),
 slash commands (`/handoff`, `/purge`), MCP servers (`promote_tools`), sessions,
@@ -211,7 +216,7 @@ subagents.
 
 ```sh
 cargo check -p <crate>         # package-scoped; full workspace is slow
-cargo test -p xai-grok-config  # defaults = slim on this fork
+cargo test -p xai-grok-config  # package-scoped tests
 cargo clippy -p <crate>
 cargo fmt --all
 ```
