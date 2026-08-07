@@ -71,6 +71,26 @@ Toolchain bump procedure is documented in `rust-toolchain.toml` (bump carefully;
 - No separate open-source “migrate DB” CLI documented as a primary workflow; session utilities include shell bin `chat-history-downgrade`.
 - After dependency or workspace member changes, expect lockfile updates via normal cargo resolution (root `Cargo.toml` itself is generated upstream). Commit the resulting `Cargo.lock` with that same change (see [Dependencies](dependencies.md)).
 
+## GitHub Release (linux/amd64)
+
+Workflow: `.github/workflows/release-linux-amd64.yml`
+
+- **Trigger:** push of a tag matching `v*` (lowercase `v`; GitHub globs are case-sensitive).
+- **Branch policy:** the tagged commit must be an ancestor of `origin/dev` (tags are not branch-scoped in git; the job enforces this).
+- **Build:** `cargo build -p xai-grok-pager-bin --profile release-dist --target x86_64-unknown-linux-gnu` (default crate features = fork slim + `sandbox-enforce`).
+- **Artifact:** zip containing a `grok` binary, attached to a GitHub Release for that tag (`grok-<tag>-linux-amd64.zip`).
+- **Release body:** section for the tag version extracted from `crates/codegen/xai-grok-shell/CHANGELOG.md` (tag `v0.2.121` → heading `# 0.2.121 — …`). Fails if that section is missing. Auto PR/commit notes are off.
+- **CI needs:** DotSlash on PATH (prebuilt install in the workflow) so `bin/protoc` resolves. Rust channel in the workflow must match `rust-toolchain.toml` (`dtolnay/rust-toolchain` requires an explicit `toolchain` input).
+
+Tag from a `dev` tip (example):
+
+```sh
+git checkout dev
+git pull
+git tag v0.2.121   # must start with lowercase v
+git push origin v0.2.121
+```
+
 ## Common agent workflows
 
 | Goal | Command / path |
@@ -82,6 +102,7 @@ Toolchain bump procedure is documented in `rust-toolchain.toml` (bump carefully;
 | Lint one crate | `cargo clippy -p <crate>` |
 | Slim check / fat bin check | `cargo grok-slim-check` / `--features product-full` |
 | Pull monorepo updates into this fork | [Fork Sync](fork-sync.md) (`origin/main` → rebase `dev`) |
+| Ship linux/amd64 zip via GitHub Release | push tag `v*` on a commit reachable from `dev` |
 
 ## Env vars (names only)
 
@@ -99,6 +120,7 @@ Do not store values in OKF.
 - `rust-toolchain.toml`
 - `Cargo.toml` profiles
 - `.cargo/config.toml` (`grok-slim`, `grok-slim-check`)
+- `.github/workflows/release-linux-amd64.yml`
 - [Testing](testing.md) (slim vs feature-on tests)
 - `bin/protoc`
 - `crates/codegen/xai-grok-pager/docs/user-guide/05-configuration.md`

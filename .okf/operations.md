@@ -9,9 +9,11 @@ tags: [ops]
 
 ## Deploy model
 
-- End users install prebuilt `grok` binaries (install scripts at x.ai/cli) or build `xai-grok-pager` from source.
-- This repository is a source transparency / local build tree, not a full production deploy system for cloud services.
+- **This fork:** prebuilt `grok` for linux/amd64 from [GitHub Releases](https://github.com/dj-nitehawk/grok-build/releases) (`grok-<tag>-linux-amd64.zip`); install steps in root `README.md`. Or build `xai-grok-pager` from source on `dev`.
+- Stock SpaceXAI install scripts at x.ai/cli remain available for multi-platform upstream binaries (no fork customizations).
+- This repository is not a full production deploy system for cloud services.
 - Distribution builds may use profile `release-dist` (thin LTO, single CGU); musl targets enable RELRO/NX stack via `.cargo/config.toml`.
+- **Fork CI release:** push a `v*` tag whose commit is on `dev` → `.github/workflows/release-linux-amd64.yml` builds `release-dist` for `x86_64-unknown-linux-gnu`, zips as `grok`, and attaches it to a GitHub Release (see [Workflows](workflows.md#github-release-linuxamd64)).
 
 ## Services and ports
 
@@ -69,3 +71,4 @@ Auth: browser-based login on first launch for interactive use; security reports 
 - `crates/codegen/xai-grok-shell/src/session/mcp_promote.rs`
 - `README.md`
 - `.cargo/config.toml`
+- `.github/workflows/release-linux-amd64.yml`

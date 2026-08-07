@@ -12,7 +12,7 @@ resource: README.md
 
 **Grok Build** (`grok`) is SpaceXAI's terminal-based AI coding agent. It runs as a full-screen TUI that understands a codebase, edits files, runs shell commands, searches the web, and manages long-running tasks. It also supports headless/scripted use and IDE embedding via the Agent Client Protocol (ACP).
 
-This repository holds the Rust source for the CLI/TUI and agent runtime. It is synced periodically from the SpaceXAI monorepo. `SOURCE_REV` at the repo root records the monorepo commit SHA for the published tree.
+This repository is a **customized fork** (`dj-nitehawk/grok-build`): `main` mirrors monorepo syncs; `dev` holds fork customizations (slim defaults, prompts, handoff/purge, MCP promote, TTFP, release CI). `SOURCE_REV` records the monorepo commit SHA for the synced base. Product pitch and binary install: root `README.md`.
 
 ## Scope
 
@@ -35,9 +35,9 @@ This repository holds the Rust source for the CLI/TUI and agent runtime. It is s
 
 ## Status
 
-- Public tree for source transparency and local builds (Apache-2.0).
+- Fork of the public monorepo tree (Apache-2.0); daily work on `dev`.
 - External contributions are not accepted (`CONTRIBUTING.md`).
-- Prebuilt binaries install as `grok`; cargo artifact is `xai-grok-pager`.
+- Prebuilt **linux/amd64** ships as `grok` via GitHub Releases (tag `v*` on `dev`); cargo artifact is `xai-grok-pager`. Official multi-platform installers at x.ai/cli are stock upstream (no fork customizations).
 - macOS and Linux are supported build hosts; Windows from this tree is best-effort.
 
 ## Non-goals
