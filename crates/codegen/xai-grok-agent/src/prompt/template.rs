@@ -230,19 +230,30 @@ mod tests {
     #[test]
     fn test_base_template_renders() {
         let prompt = render_base(&default_renderer(), &default_placeholders());
-        assert!(prompt.contains(crate::prompt::context::DEFAULT_SYSTEM_PROMPT_LABEL));
+        assert!(prompt.contains("expert coding assistant"));
+        assert!(prompt.contains("user_query"));
     }
 
     #[test]
-    fn test_base_template_contains_resolved_tool_names() {
+    fn test_base_template_contains_core_guidance() {
         let prompt = render_base(&default_renderer(), &default_placeholders());
-        // The minimal prompt only resolves the read/edit tool names, inside
-        // <tool_calling>. (todo_write / run_terminal_command lived in sections
-        // that the trimmed prompt no longer renders.)
-        assert!(prompt.contains("read_file"), "Should contain 'read_file'");
+        // Slim fork prompt: work_policy + optional background_tasks/user_guide.
+        // Read/edit tool names are no longer interpolated into the base prompt.
         assert!(
-            prompt.contains("search_replace"),
-            "Should contain 'search_replace'"
+            prompt.contains("<work_policy>"),
+            "Should contain work_policy section"
+        );
+        assert!(
+            prompt.contains("Intent & Scope"),
+            "Should include intent and scope guidance"
+        );
+        assert!(
+            !prompt.contains("<tool_calling>"),
+            "Slim base prompt omits tool_calling section"
+        );
+        assert!(
+            !prompt.contains("<action_safety>"),
+            "Slim base prompt omits action_safety section"
         );
         assert!(!prompt.contains("${{"), "No unresolved template variables");
         assert!(!prompt.contains("${%"), "No unresolved template blocks");
@@ -256,6 +267,7 @@ mod tests {
             (ToolKind::Execute, "run_terminal_cmd".to_string()),
             (ToolKind::Search, "grep".to_string()),
             (ToolKind::Plan, "todo_write".to_string()),
+            (ToolKind::Monitor, "watch_process".to_string()),
             (
                 ToolKind::BackgroundTaskAction,
                 "get_task_output".to_string(),
@@ -264,14 +276,23 @@ mod tests {
         .into();
         let r = TemplateRenderer::new(tools, HashMap::new());
         let prompt = render_base(&r, &default_placeholders());
+        // Only monitor (and similar optional tools) is interpolated by name.
         assert!(
-            prompt.contains("`view_file`"),
-            "Should use overridden 'view_file'"
+            prompt.contains("Use `watch_process` for watch processes"),
+            "Should use overridden monitor tool name"
         );
-        assert!(prompt.contains("`edit`"), "Should use overridden 'edit'");
         assert!(
-            !prompt.contains("`read_file`"),
-            "Should NOT contain canonical 'read_file'"
+            !prompt.contains("Use `monitor` for watch processes"),
+            "Should NOT contain canonical monitor tool name"
+        );
+        // Read/edit names are not interpolated into the base prompt.
+        assert!(
+            !prompt.contains("`view_file`"),
+            "Base prompt should not interpolate read tool name"
+        );
+        assert!(
+            !prompt.contains("`edit`"),
+            "Base prompt should not interpolate edit tool name"
         );
     }
 
@@ -314,8 +335,25 @@ mod tests {
         let p = default_placeholders();
         let prompt = render_base(&default_renderer(), &p);
         assert!(
-            prompt.contains(crate::prompt::context::DEFAULT_SYSTEM_PROMPT_LABEL),
+            prompt.contains("expert coding assistant"),
             "Must contain agent identity"
+        );
+        assert!(
+            prompt.contains("user_query"),
+            "Must reference user_query tag"
+        );
+        assert!(
+            prompt.contains("<work_policy>"),
+            "Must contain work_policy section"
+        );
+    }
+
+    #[test]
+    fn test_compact_prompt_matches_expected() {
+        assert_eq!(
+            COMPACT_SYSTEM_PROMPT,
+            "You are an AI coding agent. You operate in a workspace with a provided codebase.\n\n\
+             Your main goal is to complete the user's request, denoted within the <user_query> tag.",
         );
     }
 
@@ -329,16 +367,27 @@ mod tests {
             !compact.contains("<tool_calling>"),
             "Compact has no tool section"
         );
+        assert!(
+            !compact.contains("<work_policy>"),
+            "Compact has no work_policy section"
+        );
 
         let full = render_base(&default_renderer(), &default_placeholders());
         assert!(
-            full.contains("<tool_calling>"),
-            "Full prompt has tool section"
+            full.contains("<work_policy>"),
+            "Full prompt has work_policy section"
         );
-        assert!(full.contains("read_file"), "Full prompt has read_file");
         assert!(
-            full.contains("search_replace"),
-            "Full prompt has search_replace"
+            full.contains("user_query"),
+            "Full prompt still references user_query"
+        );
+        assert!(
+            !full.contains("<tool_calling>"),
+            "Slim full prompt has no tool_calling section"
+        );
+        assert!(
+            !full.contains("<action_safety>"),
+            "Slim full prompt has no action_safety section"
         );
     }
 
@@ -349,6 +398,7 @@ mod tests {
             (ToolKind::Edit, "edit".to_string()),
             (ToolKind::Execute, "run_terminal_cmd".to_string()),
             (ToolKind::Plan, "todo_write".to_string()),
+            (ToolKind::Monitor, "watch_process".to_string()),
             (
                 ToolKind::BackgroundTaskAction,
                 "get_task_output".to_string(),
@@ -357,15 +407,21 @@ mod tests {
         .into();
         let r = TemplateRenderer::new(tools, HashMap::new());
         let prompt = render_base(&r, &default_placeholders());
-        assert!(prompt.contains("`edit`"), "Should use overridden 'edit'");
-        assert!(prompt.contains("`view`"), "Should use overridden 'view'");
         assert!(
-            !prompt.contains("`read_file`"),
-            "Should not contain original 'read_file'"
+            prompt.contains("Use `watch_process` for watch processes"),
+            "Should use overridden monitor tool name"
         );
         assert!(
-            !prompt.contains("`search_replace`"),
-            "Should not contain original 'search_replace'"
+            !prompt.contains("Use `monitor` for watch processes"),
+            "Should not contain canonical monitor tool name"
+        );
+        assert!(
+            !prompt.contains("`view`"),
+            "Slim base prompt does not interpolate read tool name"
+        );
+        assert!(
+            !prompt.contains("`edit`"),
+            "Slim base prompt does not interpolate edit tool name"
         );
     }
 
@@ -699,9 +755,8 @@ mod tests {
 
     #[test]
     fn interactive_renders_shell_prefix_tip_and_user_guide() {
-        // The `! <command>` shell-prefix tip was removed from the minimal
-        // prompt. The <user_guide> block still renders for interactive
-        // sessions only, so that's what we assert here.
+        // Slim fork prompt has no mode-specific header and no shell-prefix
+        // tip. The <user_guide> block still renders for interactive sessions.
         let mut p = default_placeholders();
         p["is_non_interactive"] = serde_json::json!(false);
         let prompt = render_base(&default_renderer(), &p);
@@ -709,6 +764,11 @@ mod tests {
             prompt.contains("<user_guide>"),
             "interactive prompt must keep the <user_guide> block"
         );
+        assert!(
+            prompt.contains("expert coding assistant"),
+            "interactive prompt must keep the slim identity header"
+        );
+        assert!(prompt.contains("user_query"));
     }
 
     #[test]
@@ -720,8 +780,10 @@ mod tests {
             !prompt.contains("<user_guide>"),
             "non-interactive prompt must suppress the <user_guide> block"
         );
-        // Sanity: rest of the template still renders.
-        assert!(prompt.contains(crate::prompt::context::DEFAULT_SYSTEM_PROMPT_LABEL));
+        // Sanity: rest of the slim template still renders.
+        assert!(prompt.contains("expert coding assistant"));
+        assert!(prompt.contains("user_query"));
+        assert!(prompt.contains("<work_policy>"));
     }
 
     #[test]
