@@ -309,13 +309,21 @@ impl AuthManager {
             Some("0") => return false,
             _ => {}
         }
-        if !self.power_listener_started.load(Ordering::Acquire) {
+        #[cfg(not(feature = "system-power"))]
+        {
+            let _ = self;
             return false;
         }
-        matches!(
-            xai_system_power::current_power_state(),
-            xai_system_power::PowerState::DarkWake
-        )
+        #[cfg(feature = "system-power")]
+        {
+            if !self.power_listener_started.load(Ordering::Acquire) {
+                return false;
+            }
+            matches!(
+                xai_system_power::current_power_state(),
+                xai_system_power::PowerState::DarkWake
+            )
+        }
     }
 
     /// Whether `refresh_chain` should defer this refresh because the system is
@@ -396,37 +404,52 @@ impl AuthManager {
     /// Start the OS power listener so sleep/wake drives the gate. Idempotent and
     /// a no-op where the listener is unavailable. Call only from local /
     /// interactive entrypoints, never headless/server ones.
+    ///
+    /// Without feature `system-power`, this is always a no-op (no OS listener).
     pub fn start_system_power_listener(self: &Arc<Self>) {
-        // Claim the one-time startup so concurrent/duplicate calls don't
-        // double-register.
-        if self
-            .power_listener_started
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
+        #[cfg(not(feature = "system-power"))]
         {
+            let _ = self;
+            xai_grok_telemetry::unified_log::info(
+                "auth.sleep.power_listener_init",
+                None,
+                Some(serde_json::json!({ "available": false, "compiled_in": false })),
+            );
             return;
         }
-        // Weak ref to avoid a manager <-> listener Arc cycle.
-        let weak = Arc::downgrade(self);
-        let listener = xai_system_power::SystemPowerListener::start(move |event| {
-            if let Some(this) = weak.upgrade() {
-                let imminent = matches!(event, xai_system_power::PowerEvent::WillSleep);
-                this.set_system_sleep_imminent(imminent);
+        #[cfg(feature = "system-power")]
+        {
+            // Claim the one-time startup so concurrent/duplicate calls don't
+            // double-register.
+            if self
+                .power_listener_started
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return;
             }
-        });
-        let available = listener.is_some();
-        if available {
-            *self.power_listener.lock() = listener;
-        } else {
-            // Unavailable (unsupported OS / no logind / registration failure):
-            // release the guard so a later call can retry rather than being
-            // permanently no-op'd for this manager.
-            self.power_listener_started.store(false, Ordering::Release);
+            // Weak ref to avoid a manager <-> listener Arc cycle.
+            let weak = Arc::downgrade(self);
+            let listener = xai_system_power::SystemPowerListener::start(move |event| {
+                if let Some(this) = weak.upgrade() {
+                    let imminent = matches!(event, xai_system_power::PowerEvent::WillSleep);
+                    this.set_system_sleep_imminent(imminent);
+                }
+            });
+            let available = listener.is_some();
+            if available {
+                *self.power_listener.lock() = listener;
+            } else {
+                // Unavailable (unsupported OS / no logind / registration failure):
+                // release the guard so a later call can retry rather than being
+                // permanently no-op'd for this manager.
+                self.power_listener_started.store(false, Ordering::Release);
+            }
+            xai_grok_telemetry::unified_log::info(
+                "auth.sleep.power_listener_init",
+                None,
+                Some(serde_json::json!({ "available": available, "compiled_in": true })),
+            );
         }
-        xai_grok_telemetry::unified_log::info(
-            "auth.sleep.power_listener_init",
-            None,
-            Some(serde_json::json!({ "available": available })),
-        );
     }
 }

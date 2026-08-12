@@ -49,10 +49,165 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
+
+// Real engine when feature `mermaid` is on; lightweight stubs when off so this
+// module path stays stable for main syncs without linking resvg/mermaid-to-svg.
+#[cfg(feature = "mermaid")]
 use xai_grok_mermaid::{
     MermaidTheme, RenderLimits, RenderParams, RenderedDiagram, SubprocessError, default_engine,
     render_checked, run_with_timeout,
 };
+
+#[cfg(not(feature = "mermaid"))]
+mod mermaid_engine_stub {
+    use std::process::Command;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub enum MermaidTheme {
+        #[default]
+        Light,
+        Dark,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Rgba {
+        pub r: u8,
+        pub g: u8,
+        pub b: u8,
+        pub a: u8,
+    }
+
+    impl MermaidTheme {
+        pub fn surface_background(self) -> Rgba {
+            match self {
+                MermaidTheme::Light => Rgba {
+                    r: 0xFA,
+                    g: 0xFA,
+                    b: 0xFA,
+                    a: 0xFF,
+                },
+                MermaidTheme::Dark => Rgba {
+                    r: 0x18,
+                    g: 0x18,
+                    b: 0x1B,
+                    a: 0xFF,
+                },
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct RenderParams {
+        pub theme: MermaidTheme,
+        pub target_width_px: u32,
+        pub max_height_px: u32,
+        pub scale: f32,
+        pub min_width_px: u32,
+        pub background: Option<Rgba>,
+    }
+
+    impl RenderParams {
+        pub fn for_os_viewer(theme: MermaidTheme, min_width_px: u32, max_height_px: u32) -> Self {
+            Self {
+                theme,
+                target_width_px: 0,
+                max_height_px,
+                scale: 2.0,
+                min_width_px,
+                background: Some(theme.surface_background()),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RenderedDiagram {
+        pub png: Vec<u8>,
+        pub width_px: u32,
+        pub height_px: u32,
+    }
+
+    #[derive(Debug)]
+    pub struct RenderLimits {
+        pub max_source_bytes: usize,
+    }
+
+    impl Default for RenderLimits {
+        fn default() -> Self {
+            Self {
+                max_source_bytes: 256 * 1024,
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum MermaidError {
+        NotCompiled,
+    }
+
+    impl std::fmt::Display for MermaidError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::NotCompiled => write!(
+                    f,
+                    "Mermaid support is not compiled into this build (missing feature `mermaid`)"
+                ),
+            }
+        }
+    }
+
+    impl std::error::Error for MermaidError {}
+
+    pub trait MermaidEngine: Send + Sync {}
+
+    struct NoopEngine;
+    impl MermaidEngine for NoopEngine {}
+
+    pub fn default_engine() -> Arc<dyn MermaidEngine> {
+        Arc::new(NoopEngine)
+    }
+
+    pub fn render_checked(
+        _engine: &dyn MermaidEngine,
+        _source: &str,
+        _params: &RenderParams,
+        _limits: &RenderLimits,
+    ) -> Result<RenderedDiagram, MermaidError> {
+        Err(MermaidError::NotCompiled)
+    }
+
+    // Shape-matched to `xai_grok_mermaid::SubprocessError` so `map_run_result`
+    // can keep one match without cfg. Slim builds only construct `Spawn`.
+    #[derive(Debug)]
+    #[allow(dead_code)]
+    pub enum SubprocessError {
+        Timeout,
+        NonZeroExit(std::process::ExitStatus),
+        Spawn(std::io::Error),
+        Wait(std::io::Error),
+    }
+
+    pub fn run_with_timeout(
+        _cmd: Command,
+        _stdin: Option<&[u8]>,
+        _timeout: Duration,
+    ) -> Result<(), SubprocessError> {
+        Err(SubprocessError::Spawn(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Mermaid support is not compiled into this build (missing feature `mermaid`)",
+        )))
+    }
+}
+
+#[cfg(not(feature = "mermaid"))]
+use mermaid_engine_stub::{
+    MermaidError, MermaidTheme, RenderLimits, RenderParams, RenderedDiagram, SubprocessError,
+    default_engine, render_checked, run_with_timeout,
+};
+
+#[cfg(feature = "mermaid")]
+use xai_grok_mermaid::MermaidError;
 
 use crate::app::agent_view::AgentView;
 use crate::scrollback::blocks::mermaid_content::{
@@ -703,7 +858,7 @@ fn render_source_to_png(
     theme_dark: bool,
     target_width_px: u32,
     quality: MermaidRenderQuality,
-) -> Result<RenderedDiagram, xai_grok_mermaid::MermaidError> {
+) -> Result<RenderedDiagram, MermaidError> {
     let params = render_params_for(theme_dark, target_width_px, quality);
     render_checked(
         default_engine().as_ref(),
@@ -1421,6 +1576,7 @@ mod tests {
     /// a `Ready` result arrives on the channel with **no external event** after
     /// the single `send` (the view side only has to keep polling, which
     /// `mermaid_needs_tick` ensures while an on-click action is pending).
+    #[cfg(feature = "mermaid")]
     #[test]
     fn worker_autonomously_produces_ready() {
         let dir = tempfile::tempdir().unwrap();
@@ -1472,6 +1628,7 @@ mod tests {
 
     /// A re-render under the worker's coalescing still produces a fresh PNG: a
     /// disk-hit on the second send returns `Ready` from the cached file.
+    #[cfg(feature = "mermaid")]
     #[test]
     fn worker_second_render_is_a_disk_hit() {
         let dir = tempfile::tempdir().unwrap();
@@ -1631,6 +1788,7 @@ mod tests {
     /// The shared render core (also used by the child process) renders a cyclic
     /// login-flow — whose back-edge routes back into the cycle, the tricky
     /// flowchart-routing case — to a decodable PNG without panicking.
+    #[cfg(feature = "mermaid")]
     #[test]
     fn render_source_to_png_handles_cyclic_login_flow() {
         let source = "flowchart TD\n\
@@ -1728,6 +1886,7 @@ mod tests {
     /// The child's render→write core turns a real source into a decodable PNG on
     /// disk — the happy path the `__mermaid-render` child takes after reading
     /// stdin (the stdin half is covered by the subprocess integration test).
+    #[cfg(feature = "mermaid")]
     #[test]
     fn render_and_write_produces_decodable_png() {
         let dir = tempfile::tempdir().unwrap();
@@ -1945,6 +2104,7 @@ mod tests {
     /// wall-clock timeout + outcome mapping) against stub children — the path the
     /// worker swaps out under `#[cfg(test)]`, so it would otherwise run only in
     /// the `#[ignore]` e2e.
+    #[cfg(feature = "mermaid")]
     #[cfg(unix)]
     #[test]
     fn run_render_command_maps_stub_child_outcomes() {
@@ -2048,6 +2208,7 @@ mod tests {
     /// light render of the *same* source land in separate decodable PNGs — the
     /// artifact-level basis for "switching theme opens the correct per-theme
     /// PNG" (the lazy click derives the out-path from the live theme's key).
+    #[cfg(feature = "mermaid")]
     #[test]
     fn per_theme_renders_land_in_distinct_files() {
         let dir = tempfile::tempdir().unwrap();
@@ -2153,6 +2314,7 @@ mod tests {
     /// records a pending action (so the view keeps ticking), and — once the
     /// worker lands the result — runs the action and drains `pending` so
     /// `mermaid_needs_tick()` flips back to false (the settle invariant).
+    #[cfg(feature = "mermaid")]
     #[test]
     fn mermaid_view_miss_dispatches_then_settles() {
         let mut agent = agent_with_session("miss");

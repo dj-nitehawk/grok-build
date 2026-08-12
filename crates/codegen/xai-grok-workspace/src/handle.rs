@@ -1,7 +1,7 @@
 //! [`WorkspaceHandle`] -- public handle to a workspace instance.
 use fastrace::future::FutureExt as _;
 use fastrace::local::LocalSpan;
-use prometheus::{
+use crate::prometheus_facade::{
     Histogram, HistogramVec, IntCounter, IntCounterVec, register_histogram, register_histogram_vec,
     register_int_counter, register_int_counter_vec,
 };
@@ -2363,15 +2363,21 @@ impl WorkspaceHandle {
     pub fn get_or_create_codebase_index(
         &self,
         cwd: std::path::PathBuf,
-    ) -> (Arc<xai_codebase_graph::IndexManagerHandle>, bool) {
+    ) -> (crate::file_system::CodebaseIndexHandle, bool) {
         self.shared.codebase_indexes.lock().get_or_create(cwd)
     }
     pub fn get_codebase_index(
         &self,
         cwd: &std::path::Path,
-    ) -> Option<Arc<xai_codebase_graph::IndexManagerHandle>> {
+    ) -> Option<crate::file_system::CodebaseIndexHandle> {
         self.shared.codebase_indexes.lock().get(cwd)
     }
+    #[cfg(not(feature = "codebase-graph"))]
+    fn spawn_codebase_index_event_forwarder(&self) -> tokio::task::JoinHandle<()> {
+        let _ = self;
+        tokio::spawn(async {})
+    }
+    #[cfg(feature = "codebase-graph")]
     fn spawn_codebase_index_event_forwarder(&self) -> tokio::task::JoinHandle<()> {
         let shared = self.shared.clone();
         let root_cwd = self.shared.root_cwd.clone();

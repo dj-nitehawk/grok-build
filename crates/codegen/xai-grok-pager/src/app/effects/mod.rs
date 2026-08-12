@@ -4592,7 +4592,7 @@ fn format_session_info(
         .map(|id| format!("\n  Conversation ID: {id}"))
         .unwrap_or_default();
     let version_display = xai_grok_version::display_version(
-        xai_grok_update::channel_label(),
+        crate::update_info::channel_label(),
     );
     let auth_lines = format_auth_lines(is_api_key_auth, api_key_env_set);
     format!(

@@ -51,7 +51,8 @@ toml = { workspace = true, features = ["preserve_order"] }
 dashmap = { workspace = true }
 agent-client-protocol = { workspace = true }
 xai-acp-lib = { workspace = true }
-xai-codebase-graph = { path = "../xai-codebase-graph" }
+# Optional codebase graph (feature `codebase-graph`). Fork slim leaves off.
+xai-codebase-graph = { path = "../xai-codebase-graph", optional = true }
 xai-grok-paths = { path = "../xai-grok-paths" }
 base64 = { workspace = true }
 infer = { workspace = true }
@@ -69,14 +70,16 @@ tree-sitter-bash = "0.25"
 url = { workspace = true }
 xai-grok-env = { workspace = true }
 humantime-serde = { workspace = true }
-prometheus = { workspace = true }
+# Optional local Prometheus families (feature `prometheus-metrics`).
+prometheus = { workspace = true, optional = true }
 glob = "0.3"
 xai-grok-sandbox = { path = "../xai-grok-sandbox", default-features = false }
 xai-grok-hooks = { path = "../xai-grok-hooks" }
 xai-hunk-tracker = { path = "../xai-hunk-tracker" }
-# `metrics` enables the SDK's metric-donation client (periodic Prometheus
-# registry gather → OTLP → hub donation pump); see metric_donation_reporter.
-xai-computer-hub-sdk = { workspace = true, features = ["metrics"] }
+# Hub OTLP donation (traces/logs/metrics) is feature `hub-telemetry` — off for
+# fork slim so product binaries skip the OTel/proto stack. workspace_server
+# enables it via product-full / --features hub-telemetry.
+xai-computer-hub-sdk = { workspace = true }
 xai-computer-hub-mcp-adapter = { path = "../../common/xai-computer-hub-mcp-adapter" }
 xai-grok-mcp = { path = "../xai-grok-mcp" }
 xai-file-utils = { path = "../xai-file-utils" }
@@ -133,6 +136,17 @@ compression = []
 test-support = []
 test-util = []
 sandbox-enforce = ["xai-grok-sandbox/enforce"]
+# Hub WebSocket OTLP donation + xai-tracing OTLP + file-utils propagator.
+# Off by default for slim product builds; enable for workspace_server donation.
+hub-telemetry = [
+    "xai-computer-hub-sdk/metrics",
+    "xai-tracing/otlp",
+    "xai-file-utils/otel-context",
+]
+# Local Prometheus metric families (ops scrape). Off for fork slim.
+prometheus-metrics = ["dep:prometheus"]
+# Codebase graph index (multi-lang tree-sitter). Off for fork slim.
+codebase-graph = ["dep:xai-codebase-graph"]
 default-bazel = [
     "sandbox-enforce",
     ]

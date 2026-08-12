@@ -729,6 +729,7 @@ impl AgentBuilder {
                 use xai_grok_tools::implementations::grok_build;
                 tool_config.tools.push((&grok_build::WebSearchTool).into());
             }
+            #[cfg(feature = "web-fetch")]
             if self.web_fetch_config.is_enabled() {
                 use xai_grok_tools::implementations::grok_build;
                 tool_config.tools.push((&grok_build::WebFetchTool).into());
@@ -2261,6 +2262,7 @@ mod tests {
             assert!(!names.contains(&excluded.to_string()), "got: {names:?}");
         }
     }
+    #[cfg(feature = "web-fetch")]
     #[tokio::test]
     async fn requested_enabled_web_tools_survive_allowlist() {
         use xai_grok_tools::computer::local::LocalTerminalBackend;

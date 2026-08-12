@@ -335,7 +335,7 @@ const VOICE_CAPTURE_MODE_CHOICES: &[EnumChoice] = &[
 
 // Voice STT language choices for the settings modal.
 //
-// Concrete codes must match `xai_grok_voice::STT_LANGUAGES` (official Grok STT
+// Concrete codes must match `crate::voice_rt::STT_LANGUAGES` (official Grok STT
 // catalog — https://docs.x.ai/developers/model-capabilities/audio/speech-to-text).
 // `auto` is client-only; the voice crate resolves it to a concrete code before
 // the STT handshake. Order: English (default), System, then remaining languages
@@ -1435,7 +1435,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
         // SHELL-owned, persisted to `[ui].voice_stt_language`. Live-applied to
         // the next voice capture (no restart). Default English; System (`auto`)
         // follows the process locale when it maps to a Grok STT language.
-        // Catalog = official STT languages (see xai_grok_voice::STT_LANGUAGES).
+        // Catalog = official STT languages (see crate::voice_rt::STT_LANGUAGES).
         SettingMeta {
             key: "voice_stt_language",
             category: SettingCategory::Editor,

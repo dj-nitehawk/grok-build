@@ -49,8 +49,12 @@ impl Syntect {
     }
 
     /// Find a syntax definition by language token (e.g., "rust", "python").
+    ///
+    /// Also accepts common markdown / GitHub / LLM fence aliases that do not
+    /// match syntect's syntax name or extensions (e.g. `csharp` → C#).
     pub fn find_syntax_by_token(&self, token: &str) -> Option<&SyntaxReference> {
-        self.syntax_set.find_syntax_by_token(token)
+        self.syntax_set
+            .find_syntax_by_token(resolve_syntax_token(token))
     }
 
     /// Create a highlighter for the given file path.
@@ -103,6 +107,22 @@ impl Syntect {
         }
         self.find_syntax_by_token(fence_info)
     }
+}
+
+/// Map common fence-info tags to the token syntect actually knows.
+///
+/// syntect's `find_syntax_by_token` only checks file extensions and the
+/// syntax **name** (case-insensitive). Sublime's C# grammar is named `"C#"`
+/// with extensions `cs`/`csx`, so the ubiquitous markdown tag `csharp` never
+/// matches without this alias. Same for F# / `fsharp`.
+fn resolve_syntax_token(token: &str) -> &str {
+    if token.eq_ignore_ascii_case("csharp") || token.eq_ignore_ascii_case("c-sharp") {
+        return "c#";
+    }
+    if token.eq_ignore_ascii_case("fsharp") || token.eq_ignore_ascii_case("f-sharp") {
+        return "f#";
+    }
+    token
 }
 
 /// ```text
@@ -207,5 +227,61 @@ mod tests {
     fn highlight_lines_for_fence_info_still_accepts_rust_token() {
         let s = super::test_syntect();
         assert!(s.highlight_lines_for_fence_info("rust").is_some());
+    }
+
+    #[test]
+    fn csharp_fence_aliases_resolve_to_c_sharp() {
+        let s = super::test_syntect();
+        for token in ["csharp", "CSharp", "CSHARP", "c-sharp", "cs", "c#", "C#"] {
+            let syn = s
+                .find_syntax_by_token(token)
+                .unwrap_or_else(|| panic!("expected syntax for fence token {token:?}"));
+            assert_eq!(syn.name, "C#", "token {token:?}");
+            assert!(
+                s.highlight_lines_for_fence_info(token).is_some(),
+                "highlighter for {token:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fsharp_fence_aliases_resolve_to_f_sharp() {
+        let s = super::test_syntect();
+        for token in ["fsharp", "FSharp", "f-sharp", "f#", "F#"] {
+            let syn = s
+                .find_syntax_by_token(token)
+                .unwrap_or_else(|| panic!("expected syntax for fence token {token:?}"));
+            assert_eq!(syn.name, "F#", "token {token:?}");
+            assert!(
+                s.highlight_lines_for_fence_info(token).is_some(),
+                "highlighter for {token:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn csharp_fence_highlights_with_multiple_styles() {
+        let s = super::test_syntect();
+        let lines = super::syntax_highlight_raw(
+            Some(s),
+            "csharp",
+            "public class Foo { int x = 1; /* c */ }\n",
+        )
+        .expect("csharp fence should highlight");
+        assert!(!lines.is_empty());
+        let mut colors = std::collections::BTreeSet::new();
+        for line in &lines {
+            for (style, _) in line {
+                colors.insert((
+                    style.foreground.r,
+                    style.foreground.g,
+                    style.foreground.b,
+                ));
+            }
+        }
+        assert!(
+            colors.len() >= 2,
+            "expected multi-color csharp highlight, got {colors:?}"
+        );
     }
 }

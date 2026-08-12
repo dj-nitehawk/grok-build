@@ -13,7 +13,18 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
+#[cfg(feature = "codebase-graph")]
 use xai_codebase_graph::{IndexManager, IndexManagerConfig, IndexManagerHandle};
+
+/// Handle type for a running codebase index.
+///
+/// Real graph handle when feature `codebase-graph` is on; unit stub when off
+/// (get always returns None; get_or_create is a no-op that does not spawn).
+#[cfg(feature = "codebase-graph")]
+pub type CodebaseIndexHandle = std::sync::Arc<IndexManagerHandle>;
+#[cfg(not(feature = "codebase-graph"))]
+#[derive(Debug, Clone)]
+pub struct CodebaseIndexHandle;
 
 use xai_grok_tools::util::grok_home::grok_home;
 
@@ -34,7 +45,10 @@ pub fn get_index_cache_path(cwd: &Path) -> PathBuf {
 /// handle reuse. Keeps only `Weak` refs — sessions hold the strong `Arc`s,
 /// so the actor is reaped when the last session in a git-root closes.
 pub struct CodebaseIndexManager {
+    #[cfg(feature = "codebase-graph")]
     indexes: HashMap<PathBuf, Weak<IndexManagerHandle>>,
+    #[cfg(not(feature = "codebase-graph"))]
+    _no_graph: (),
 }
 
 impl Default for CodebaseIndexManager {
@@ -46,13 +60,25 @@ impl Default for CodebaseIndexManager {
 impl CodebaseIndexManager {
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "codebase-graph")]
             indexes: HashMap::new(),
+            #[cfg(not(feature = "codebase-graph"))]
+            _no_graph: (),
         }
     }
 
     /// Get or create the index for `cwd`. Returns `(handle, was_newly_spawned)`.
     /// Caller must hold the `Arc` to keep the index alive.
-    pub fn get_or_create(&mut self, cwd: PathBuf) -> (Arc<IndexManagerHandle>, bool) {
+    ///
+    /// Without feature `codebase-graph`, returns a stub handle and never spawns.
+    pub fn get_or_create(&mut self, cwd: PathBuf) -> (CodebaseIndexHandle, bool) {
+        #[cfg(not(feature = "codebase-graph"))]
+        {
+            let _ = cwd;
+            return (CodebaseIndexHandle, false);
+        }
+        #[cfg(feature = "codebase-graph")]
+        {
         self.indexes.retain(|_, weak| weak.strong_count() > 0);
 
         if let Some(handle) = self.indexes.get(&cwd).and_then(Weak::upgrade) {
@@ -89,24 +115,40 @@ impl CodebaseIndexManager {
 
         self.indexes.insert(cwd, Arc::downgrade(&handle));
         (handle, true)
+        }
     }
 
     /// Get the running index for `cwd`, or `None` if not started / already reaped.
-    pub fn get(&self, cwd: &Path) -> Option<Arc<IndexManagerHandle>> {
-        self.indexes.get(cwd).and_then(Weak::upgrade)
+    pub fn get(&self, cwd: &Path) -> Option<CodebaseIndexHandle> {
+        #[cfg(not(feature = "codebase-graph"))]
+        {
+            let _ = cwd;
+            return None;
+        }
+        #[cfg(feature = "codebase-graph")]
+        {
+            self.indexes.get(cwd).and_then(Weak::upgrade)
+        }
     }
 
     /// Returns the number of currently-live indexes (test helper).
     #[cfg(test)]
     pub(crate) fn active_count(&self) -> usize {
-        self.indexes
-            .values()
-            .filter(|weak| weak.strong_count() > 0)
-            .count()
+        #[cfg(not(feature = "codebase-graph"))]
+        {
+            return 0;
+        }
+        #[cfg(feature = "codebase-graph")]
+        {
+            self.indexes
+                .values()
+                .filter(|weak| weak.strong_count() > 0)
+                .count()
+        }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "codebase-graph"))]
 mod tests {
     use super::*;
 
@@ -302,5 +344,26 @@ mod tests {
             "second get_or_create must return the same Arc as the first (index reuse)"
         );
         assert_eq!(mgr.active_count(), 1, "only one index for one path");
+    }
+}
+
+
+#[cfg(test)]
+mod slim_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_cache_path_encoding() {
+        let cwd = Path::new("/Users/test/my project");
+        let cache_path = get_index_cache_path(cwd);
+        assert!(cache_path.to_string_lossy().contains("%2F"));
+        assert!(cache_path.to_string_lossy().ends_with("goto_index.bin"));
+    }
+
+    #[test]
+    fn stub_manager_get_is_none() {
+        let mgr = CodebaseIndexManager::new();
+        assert!(mgr.get(Path::new("/tmp")).is_none());
     }
 }

@@ -9,7 +9,8 @@ anyhow = { workspace = true }
 base64 = { workspace = true }
 dirs = "6"
 dunce = { workspace = true }
-image = { workspace = true, features = ["png", "jpeg", "gif", "webp"] }
+# Fork slim: png+jpeg only; extras via feature `image-extra`.
+image = { workspace = true, features = ["png", "jpeg"] }
 parking_lot = { workspace = true }
 prod-mc-cli-chat-proxy-types = { path = "../../../prod/mc/cli-chat-proxy-types" }
 regex = { workspace = true }
@@ -51,6 +52,11 @@ arboard = { workspace = true, features = ["wayland-data-control"] }
 # data-control probe in clipboard.rs (`is_primary_selection_supported`).
 [target.'cfg(target_os = "linux")'.dependencies]
 wl-clipboard-rs = { workspace = true }
+
+[features]
+default = []
+# Extra image codecs beyond png+jpeg.
+image-extra = ["image/gif", "image/webp"]
 
 [lints]
 workspace = true

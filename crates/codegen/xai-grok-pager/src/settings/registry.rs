@@ -327,7 +327,7 @@ impl Default for PagerLocalSnapshot {
             respect_manual_folds: crate::appearance::ScrollConfig::default().respect_manual_folds,
             auto_mode_gate: false,
             ask_user_question_timeout_enabled: None,
-            voice_stt_language: xai_grok_voice::STT_LANGUAGE_DEFAULT.to_string(),
+            voice_stt_language: crate::voice_rt::STT_LANGUAGE_DEFAULT.to_string(),
             // Matches `resolve_scheduler_background_loops`'s default.
             scheduler_background_loops: true,
         }
@@ -347,11 +347,11 @@ pub fn canonical_voice_capture_mode(value: Option<&str>) -> &'static str {
 
 /// Canonicalize a raw voice STT language to a settings choice.
 ///
-/// Delegates to [`xai_grok_voice::canonicalize_stt_language`] so the pager and
+/// Delegates to [`crate::voice_rt::canonicalize_stt_language`] so the pager and
 /// the STT client share one catalog (official Grok STT languages + client-only
 /// `auto`). Unknown/blank/`None` → `en`.
 pub fn canonical_voice_stt_language(value: Option<&str>) -> &'static str {
-    xai_grok_voice::canonicalize_stt_language(value)
+    crate::voice_rt::canonicalize_stt_language(value)
 }
 
 /// Canonicalize a raw hunk-tracker mode to a registry choice. Case-insensitive
@@ -1323,7 +1323,7 @@ mod tests {
         );
     }
 
-    /// Spot-check the delegation to `xai_grok_voice::canonicalize_stt_language`
+    /// Spot-check the delegation to `crate::voice_rt::canonicalize_stt_language`
     /// (exhaustive alias/locale coverage lives in the voice crate's tests).
     #[test]
     fn canonical_voice_stt_language_delegates_to_voice_crate() {
@@ -1364,7 +1364,7 @@ mod tests {
                 "duplicate settings language code {}",
                 c.canonical
             );
-            let lang = xai_grok_voice::stt_language_by_code(c.canonical)
+            let lang = crate::voice_rt::stt_language_by_code(c.canonical)
                 .unwrap_or_else(|| panic!("settings offers unsupported STT code {}", c.canonical));
             assert_eq!(
                 c.display, lang.name,
@@ -1374,13 +1374,13 @@ mod tests {
         }
         assert!(saw_auto, "settings must offer System (auto)");
 
-        let crate_codes: HashSet<&str> = xai_grok_voice::STT_LANGUAGES
+        let crate_codes: HashSet<&str> = crate::voice_rt::STT_LANGUAGES
             .iter()
             .map(|l| l.code)
             .collect();
         assert_eq!(
             setting_codes, crate_codes,
-            "settings concrete languages must match xai_grok_voice::STT_LANGUAGES exactly"
+            "settings concrete languages must match crate::voice_rt::STT_LANGUAGES exactly"
         );
     }
 

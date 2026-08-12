@@ -49,8 +49,8 @@ pub(super) fn plugin_cta_candidates(
     let mut candidates = Vec::new();
     let mut official_source_present = false;
     for source in response.sources {
-        let is_official = source.source_name == xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME
-            || xai_grok_plugin_marketplace::is_official_source_url(&source.source_url_or_path);
+        let is_official = source.source_name == crate::marketplace_info::OFFICIAL_SOURCE_NAME
+            || crate::marketplace_info::is_official_source_url(&source.source_url_or_path);
         if !is_official {
             continue;
         }
@@ -108,7 +108,7 @@ pub(super) fn plugin_cta_phase_for(
     is_dismissed: impl Fn(&str) -> bool,
 ) -> crate::app::agent_view::CtaPhase {
     use crate::app::agent_view::CtaPhase;
-    use xai_grok_plugin_marketplace::matcher::{KeywordCandidate, match_plugin_keyword};
+    use crate::marketplace_info::{KeywordCandidate, match_plugin_keyword};
 
     if !(enabled && official_source_present) {
         return CtaPhase::Hidden;
