@@ -1,9 +1,9 @@
 use super::*;
 use xai_grok_shell::session::unified_list::ListScope;
 
+use crate::foreign_sessions_api::ForeignSessionTool;
 use crate::views::modal::ActiveModal;
 use crate::views::session_picker::{PickerItem, SourceFilter, build_entry_map};
-use xai_grok_foreign_sessions::ForeignSessionTool;
 
 fn make_foreign_entry(
     id: &str,
@@ -135,7 +135,7 @@ fn foreign_generation_drops_stale_closed_and_pre_reopen_results() {
 #[test]
 fn modal_refetch_clears_orphaned_welcome_foreign_loading() {
     let mut app = test_app_with_agent();
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         claude: true,
         codex: true,
         cursor: true,
@@ -164,7 +164,7 @@ fn modal_foreign_scan_uses_native_list_cwd() {
     let mut app = test_app_with_agent();
     app.cwd = PathBuf::from("/native-list-cwd");
     app.agents.get_mut(&AgentId(0)).unwrap().session.cwd = PathBuf::from("/agent-worktree-cwd");
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         claude: true,
         codex: true,
         cursor: true,
@@ -1004,7 +1004,7 @@ fn foreign_selection_and_mutation_guards_remain_central() {
 fn chat_picker_never_launches_or_accepts_foreign_scan() {
     let mut app = test_app();
     app.chat_mode = true;
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         claude: true,
         codex: true,
         cursor: true,
@@ -1028,7 +1028,7 @@ fn chat_picker_never_launches_or_accepts_foreign_scan() {
 #[test]
 fn native_fetch_effect_precedes_background_foreign_gate() {
     let mut app = test_app();
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         claude: true,
         codex: true,
         cursor: true,

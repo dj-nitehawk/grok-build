@@ -28,7 +28,7 @@ pub enum DeferredSessionStartup {
     },
     /// Fresh plain Grok session whose first prompt resumes a foreign tool session.
     ForeignResume {
-        tool: xai_grok_foreign_sessions::ForeignSessionTool,
+        tool: crate::foreign_sessions_api::ForeignSessionTool,
         native_id: String,
     },
 }
@@ -1429,7 +1429,7 @@ mod tests {
     fn deferred_startup_owner_take_is_atomic() {
         let mut actions = DeferredStartupActions {
             session: Some(DeferredSessionStartup::ForeignResume {
-                tool: xai_grok_foreign_sessions::ForeignSessionTool::Cursor,
+                tool: crate::foreign_sessions_api::ForeignSessionTool::Cursor,
                 native_id: "cursor-id".into(),
             }),
             prompt: Some("prompt".into()),

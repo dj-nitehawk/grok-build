@@ -248,7 +248,7 @@ pub(super) fn set_voice_stt_language_inner(app: &mut AppView, canonical: &str) {
     // the pipeline's channel-close is not misreported as "pipeline ended".
     if language_changed && let Some(tx) = app.voice_cmd_tx.take() {
         app.voice_reset();
-        let _ = tx.try_send(xai_grok_voice::VoiceCommand::Shutdown);
+        let _ = tx.try_send(crate::voice_rt::VoiceCommand::Shutdown);
     }
 }
 
@@ -268,7 +268,7 @@ pub(in crate::app::dispatch) fn set_voice_stt_language(
     }
     set_voice_stt_language_inner(app, canonical);
     refresh_open_settings_modals(app);
-    let effective = xai_grok_voice::language_for_api(canonical);
+    let effective = crate::voice_rt::language_for_api(canonical);
     tracing::info!(
         target: "settings",
         key = "voice_stt_language",
@@ -276,10 +276,10 @@ pub(in crate::app::dispatch) fn set_voice_stt_language(
         effective,
         "setting changed"
     );
-    let toast = if canonical == xai_grok_voice::STT_LANGUAGE_AUTO {
+    let toast = if canonical == crate::voice_rt::STT_LANGUAGE_AUTO {
         format!("\u{2713} Voice language: System ({effective})")
     } else {
-        let name = xai_grok_voice::stt_language_by_code(canonical).map_or(canonical, |l| l.name);
+        let name = crate::voice_rt::stt_language_by_code(canonical).map_or(canonical, |l| l.name);
         format!("\u{2713} Voice language: {name}")
     };
     app.show_toast(&toast);
