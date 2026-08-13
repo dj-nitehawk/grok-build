@@ -18,3 +18,4 @@
 
 pub mod daemonize;
 pub mod preview_supervisor;
+pub mod prometheus_facade;

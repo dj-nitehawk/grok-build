@@ -99,7 +99,7 @@ fn open_voice_tier_upsell(app: &mut AppView) -> Vec<Effect> {
 /// release can't stop them.
 pub(super) fn dispatch_enable_voice_mode(app: &mut AppView, from_hold: bool) -> Vec<Effect> {
     // Remote-flag gate only. Silent when unavailable.
-    if !app.voice_mode_enabled || !xai_grok_voice::AUDIO_SUPPORTED {
+    if !app.voice_mode_enabled || !crate::voice_rt::AUDIO_SUPPORTED {
         return vec![];
     }
     // Tier gate: free / X Basic personal users can't use voice (the server

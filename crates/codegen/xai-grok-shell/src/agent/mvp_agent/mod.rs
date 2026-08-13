@@ -708,7 +708,7 @@ const IDLE_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis
 #[derive(Default)]
 struct ResidentResources {
     /// Strong ref pinning the code-nav index; the manager holds only a `Weak`.
-    codebase_index: Option<std::sync::Arc<xai_codebase_graph::IndexManagerHandle>>,
+    codebase_index: Option<xai_grok_workspace::file_system::CodebaseIndexHandle>,
     require_gateway: bool,
 }
 /// Per-session state that survives an idle-unload (so the session stays

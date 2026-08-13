@@ -1,6 +1,6 @@
 //! Map pipeline [`VoiceEvent`]s onto prompt-box dictation state.
 
-use xai_grok_voice::VoiceEvent;
+use crate::voice_rt::VoiceEvent;
 
 use crate::app::app_view::{AppView, VoiceTarget};
 use crate::views::prompt_widget::PromptWidget;

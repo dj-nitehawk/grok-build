@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use prometheus::{IntCounterVec, register_int_counter_vec};
+use crate::prometheus_facade::{IntCounterVec, register_int_counter_vec};
 use tokio::sync::watch;
 
 /// Absolute path of the preview-proxy binary the supervisor execs.
@@ -616,6 +616,7 @@ async fn scrape_activity_loop(
 // ── Preview-metrics scraper ────────────────────────────────────────────────
 
 const PREVIEW_METRICS_PATH: &str = "/__control/metrics";
+#[cfg(feature = "hub-telemetry")]
 const PREVIEW_METRICS_PREFIX: &str = "preview_proxy_";
 const PREVIEW_METRICS_SCRAPE_INTERVAL: Duration = Duration::from_secs(60);
 
@@ -633,8 +634,13 @@ pub async fn supervise_preview_metrics(control_port: Option<u16>, shutdown: watc
         PREVIEW_METRICS_SCRAPE_INTERVAL,
         shutdown,
         |body| {
+            #[cfg(feature = "hub-telemetry")]
             if let Some(sink) = xai_computer_hub_sdk::metric_donate::active_metrics_sink() {
                 sink.export_text_exposition(body, PREVIEW_METRICS_PREFIX);
+            }
+            #[cfg(not(feature = "hub-telemetry"))]
+            {
+                let _ = body;
             }
         },
     )

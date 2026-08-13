@@ -224,7 +224,8 @@ async fn workflow_run_manifest_round_trips_and_clear_tombstone_wins() {
                 .is_empty()
         );
 }
-#[cfg(unix)]
+/// Workflow run restore exercises engine-backed run metadata; slim defaults omit it.
+#[cfg(all(unix, feature = "workflows"))]
 #[tokio::test]
 async fn workflow_restore_rejects_symlinks_and_caps_run_count() {
     use std::os::unix::fs::symlink;

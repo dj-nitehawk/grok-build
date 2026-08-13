@@ -13,7 +13,27 @@ pub mod hooks;
 pub mod hunk_tracker;
 pub mod interject;
 pub mod jj;
+#[cfg(feature = "marketplace")]
 pub mod marketplace;
+#[cfg(not(feature = "marketplace"))]
+pub mod marketplace {
+    //! Stub when feature `marketplace` is off (slim).
+    use crate::agent::mvp_agent::MvpAgent;
+    use crate::extensions::ExtResult;
+    use agent_client_protocol as acp;
+    use std::path::Path;
+
+    pub async fn handle(_agent: &MvpAgent, _args: &acp::ExtRequest) -> ExtResult {
+        Err(acp::Error::internal_error().data(
+            "marketplace support is not compiled into this build",
+        ))
+    }
+
+    pub fn purge_default_skills_installs(_grok_home: &Path) {}
+
+    pub fn ensure_official_marketplace_source(_grok_home: &Path) {}
+}
+
 pub mod mcp;
 pub mod memory;
 pub mod notification;

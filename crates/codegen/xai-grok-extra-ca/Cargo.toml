@@ -7,9 +7,8 @@ description = "Opt-in extra TLS roots from GROK_EXTRA_CA_BUNDLE (validated DER c
 
 [dependencies]
 reqwest = { workspace = true }
-# Explicit pin (not `workspace = true`): the workspace rustls pin enables
-# aws-lc-rs. This crate only needs RootCertStore + PEM parse, so stay
-# default-features = false with `std` (enables pki-types/std for PEM).
+# Explicit pin (not `workspace = true`): only RootCertStore + PEM parse —
+# no crypto provider. `std` enables pki-types/std for PEM.
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 tracing = { workspace = true }
 
