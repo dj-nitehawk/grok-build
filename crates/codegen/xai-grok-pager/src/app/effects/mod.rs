@@ -7,6 +7,7 @@
 //! back through dispatch.
 mod handoff;
 mod helpers;
+mod purge;
 use super::actions;
 use super::session_title_resolve::worktree_resume_failure_message;
 #[allow(unused_imports)]
@@ -3404,6 +3405,9 @@ pub(crate) fn execute(
                         }
                     }
                 });
+        }
+        Effect::PurgeAndQuit => {
+            purge::spawn_purge_and_quit(tasks, acp_tx);
         }
         Effect::SetCodingDataSharing {
             agent_id,
