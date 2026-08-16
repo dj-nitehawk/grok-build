@@ -1821,6 +1821,54 @@ fn assert_no_update_mcp_servers(cmds: &[SessionCommand]) {
         "mcp/list must not push UpdateMcpServers"
     );
 }
+
+/// Regression: `/purge` sends `x.ai/session/purge` through ACP. The handler
+/// lives in session_admin, but only methods listed on the ext_method match arm
+/// reach it — omitting purge yields method_not_found and a no-op toast.
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn ext_method_routes_session_purge() {
+    use acp::Agent as _;
+    use xai_grok_test_support::EnvGuard;
+
+    let grok_home = tempfile::tempdir().unwrap();
+    let _env = EnvGuard::set("GROK_HOME", grok_home.path());
+    // Empty sessions/logs dirs: purge should succeed with zero removals.
+    std::fs::create_dir_all(grok_home.path().join("sessions")).unwrap();
+    std::fs::create_dir_all(grok_home.path().join("logs")).unwrap();
+
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let agent = build_agent_with_auth(crate::auth::GrokAuth {
+                key: "eligible".into(),
+                auth_mode: crate::auth::AuthMode::WebLogin,
+                ..crate::auth::GrokAuth::test_default()
+            });
+            let resp = agent
+                .ext_method(acp::ExtRequest::new(
+                    "x.ai/session/purge",
+                    std::sync::Arc::from(
+                        serde_json::value::to_raw_value(&serde_json::json!({})).unwrap(),
+                    ),
+                ))
+                .await
+                .expect("session/purge must route through session-admin (not method_not_found)");
+            let body: serde_json::Value =
+                serde_json::from_str(resp.0.get()).expect("purge response is JSON");
+            assert_eq!(
+                body.get("success"),
+                Some(&serde_json::Value::Bool(true)),
+                "empty-home purge should report success; body={body}"
+            );
+            assert_eq!(
+                body.get("sessionsRemoved").and_then(|v| v.as_u64()),
+                Some(0)
+            );
+        })
+        .await;
+}
+
 /// `mcp/list` refresh: two resident sessions, cache=false + committed catalog
 /// fans `RefreshMcpSearchIndex`; failed catalog and cache=true do not.
 #[tokio::test(flavor = "current_thread")]
