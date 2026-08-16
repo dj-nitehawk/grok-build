@@ -156,6 +156,10 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
     app.reconcile_foreign_resume_launch();
     let effects = match action {
         Action::Quit | Action::QuitConfirmed => confirmed_quit(app),
+        Action::PurgeAndQuit => {
+            app.show_toast("Purging session history and logs\u{2026}");
+            vec![Effect::PurgeAndQuit]
+        }
         Action::QuitForUpdate => {
             let mut effects = unregister_all_active_sessions(app);
             app.quit_for_update = true;
