@@ -4,8 +4,9 @@
 //! persistent or shared agent state but are not part of the per-turn prompt
 //! lifecycle:
 //!
-//! - `x.ai/session/rename`                  rename a session locally and remote
-//! - `x.ai/session/delete`                  delete a session locally and remote
+//! - `x.ai/session/rename`                  rename a session locally + remote
+//! - `x.ai/session/delete`                  delete a session locally + remote
+//! - `x.ai/session/purge`                   purge all session history + logs
 //! - `x.ai/session/update_mcp_servers`      mid-session MCP server swap
 //! - `x.ai/session/add_local_workspace`     mid-session local workspace add-only (chat)
 //! - `x.ai/session/fork`                    fork a session into a new one
@@ -45,6 +46,7 @@ pub(crate) async fn handle(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResul
     match args.method.as_ref() {
         "x.ai/session/rename" => handle_session_rename(agent, args).await,
         "x.ai/session/delete" => handle_session_delete(agent, args).await,
+        "x.ai/session/purge" => handle_session_purge(agent).await,
         "x.ai/session/update_mcp_servers" => handle_update_mcp_servers(agent, args).await,
         #[cfg(feature = "local-workspace")]
         "x.ai/session/add_local_workspace" => handle_add_local_workspace(agent, args).await,
@@ -487,6 +489,48 @@ async fn handle_session_delete(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtR
     tracing::info!(session_id = %req.session_id, "Session deleted");
 
     to_raw_response(&serde_json::json!({ "success": true }))
+}
+
+/// Purge all local session history and logs (and remote writeback copies when
+/// applicable), then shut down any live sessions so the caller can exit cleanly.
+async fn handle_session_purge(agent: &MvpAgent) -> ExtResult {
+    let needs_remote =
+        agent.is_writeback_storage() && agent.current_auth().is_some_and(|a| !a.is_zdr_team());
+
+    // Snapshot live session ids before purge so we can tear them down after
+    // disk state is gone (mirrors per-session delete bookkeeping).
+    let live_ids: Vec<acp::SessionId> = agent.resident_ids();
+
+    let report = crate::session::purge_all_history_and_logs(
+        needs_remote,
+        agent.auth_manager.clone(),
+    )
+    .await;
+
+    for session_id in live_ids {
+        if agent.is_resident(&session_id) {
+            agent.request_session_shutdown(&session_id);
+            agent.remove_session(&session_id);
+        }
+    }
+
+    tracing::info!(
+        sessions_removed = report.sessions_removed,
+        remote_removed = report.remote_removed,
+        sessions_dir_entries_cleared = report.sessions_dir_entries_cleared,
+        logs_dir_entries_cleared = report.logs_dir_entries_cleared,
+        error_count = report.errors.len(),
+        "Session history and logs purged"
+    );
+
+    to_raw_response(&serde_json::json!({
+        "success": report.errors.is_empty(),
+        "sessionsRemoved": report.sessions_removed,
+        "remoteRemoved": report.remote_removed,
+        "sessionsDirEntriesCleared": report.sessions_dir_entries_cleared,
+        "logsDirEntriesCleared": report.logs_dir_entries_cleared,
+        "errors": report.errors,
+    }))
 }
 
 async fn soft_delete_chat_conversation(agent: &MvpAgent, conversation_id: &str) -> ExtResult {

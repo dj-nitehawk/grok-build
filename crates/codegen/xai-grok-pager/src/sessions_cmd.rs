@@ -31,6 +31,8 @@ enum SessionsCommand {
         /// Session id to delete.
         id: String,
     },
+    /// Permanently delete ALL session history and logs under ~/.grok
+    Purge,
 }
 
 pub async fn run(args: SessionsArgs, agent_config: &AgentConfig) -> Result<()> {
@@ -200,6 +202,30 @@ pub async fn run(args: SessionsArgs, agent_config: &AgentConfig) -> Result<()> {
                 println!("Deleted session {id}");
             } else {
                 println!("No session found with id {id}.");
+            }
+        }
+        SessionsCommand::Purge => {
+            let needs_remote = auth.as_ref().is_some_and(|a| !a.is_zdr_team());
+            let report = xai_grok_shell::session::purge_all_history_and_logs(
+                needs_remote,
+                auth_manager.clone(),
+            )
+            .await;
+            println!(
+                "Purged {} session(s) ({} remote); cleared {} sessions/ entry(ies) and {} logs/ entry(ies).",
+                report.sessions_removed,
+                report.remote_removed,
+                report.sessions_dir_entries_cleared,
+                report.logs_dir_entries_cleared,
+            );
+            for err in &report.errors {
+                eprintln!("warning: {err}");
+            }
+            if !report.errors.is_empty() {
+                anyhow::bail!(
+                    "purge completed with {} warning(s); some data may remain",
+                    report.errors.len()
+                );
             }
         }
     }
