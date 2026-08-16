@@ -1624,6 +1624,17 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             }
             vec![]
         }
+        TaskResult::PurgeComplete { summary } => {
+            tracing::info!(%summary, "purge complete; quitting");
+            // Best-effort toast; the process exits immediately after.
+            app.show_toast(&summary);
+            dispatch(Action::QuitConfirmed, app)
+        }
+        TaskResult::PurgeFailed { error } => {
+            tracing::warn!(error = %error, "purge failed");
+            app.show_toast(&format!("Couldn't purge history: {error}"));
+            vec![]
+        }
         TaskResult::ContextInfoComplete {
             agent_id,
             session_id,

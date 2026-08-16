@@ -3,6 +3,7 @@
 //! When tasks complete, the event loop converts their output into [`TaskResult`] and feeds it back through dispatch.
 mod handoff;
 mod helpers;
+mod purge;
 mod session_list;
 use super::actions;
 use super::worktree_session;
@@ -3775,6 +3776,9 @@ pub(crate) fn execute(
                         }
                     }
                 });
+        }
+        Effect::PurgeAndQuit => {
+            purge::spawn_purge_and_quit(tasks, acp_tx);
         }
         Effect::SetCodingDataSharing { agent_id, opted_in, seq } => {
             let tx = acp_tx.clone();
