@@ -46,6 +46,9 @@ pub enum Action {
     },
     /// Quit without double-press confirmation (e.g., from command palette or pre-login screens).
     QuitConfirmed,
+    /// Permanently delete all session history and logs, then quit.
+    /// Emitted by `/purge`.
+    PurgeAndQuit,
     /// Create a new session from the welcome screen.
     NewSession,
     /// Ask whether the new session should use a git worktree.
@@ -1984,6 +1987,8 @@ pub enum Effect {
         cwd: String,
         after: AfterSessionDelete,
     },
+    /// Purge all session history and logs via `x.ai/session/purge`, then quit.
+    PurgeAndQuit,
     /// Deep-search sessions by content (FTS via ACP).
     DeepSearchSessions {
         /// The picker this search was issued for; the result routes back to this host's storage only.
@@ -2683,6 +2688,15 @@ pub enum TaskResult {
     DeleteSessionFailed {
         source: String,
         session_id: String,
+        error: String,
+    },
+    /// Full history/log purge finished; dispatcher should quit next.
+    PurgeComplete {
+        /// Short human-readable summary for the toast (optional detail).
+        summary: String,
+    },
+    /// Full history/log purge failed before cleanup completed.
+    PurgeFailed {
         error: String,
     },
     /// Context info fetched successfully. Drop if `session_id` no longer matches.
