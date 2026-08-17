@@ -108,30 +108,40 @@ pub async fn upload_bytes<C: StorageConfig>(
         UploadMethod::Direct {
             service_account_key,
         } => {
-            // Parse the bucket URL to extract bucket name (required for direct mode)
-            let url = url::Url::parse(config.bucket_url())
-                .with_context(|| format!("Invalid GCS URL: {}", config.bucket_url()))?;
-
-            if url.scheme() != "gs" {
+            #[cfg(not(feature = "cloud-upload"))]
+            {
+                let _ = service_account_key;
                 anyhow::bail!(
-                    "Invalid GCS URL scheme: expected 'gs', got '{}'",
-                    url.scheme()
+                    "Direct GCS upload is not compiled into this build (missing feature `cloud-upload`)"
                 );
             }
+            #[cfg(feature = "cloud-upload")]
+            {
+                // Parse the bucket URL to extract bucket name (required for direct mode)
+                let url = url::Url::parse(config.bucket_url())
+                    .with_context(|| format!("Invalid GCS URL: {}", config.bucket_url()))?;
 
-            let bucket = url
-                .host_str()
-                .context("GCS URL must have a bucket name")?
-                .to_string();
+                if url.scheme() != "gs" {
+                    anyhow::bail!(
+                        "Invalid GCS URL scheme: expected 'gs', got '{}'",
+                        url.scheme()
+                    );
+                }
 
-            upload_bytes_direct(
-                &bucket,
-                object_path,
-                content,
-                content_type,
-                service_account_key.as_deref(),
-            )
-            .await
+                let bucket = url
+                    .host_str()
+                    .context("GCS URL must have a bucket name")?
+                    .to_string();
+
+                upload_bytes_direct(
+                    &bucket,
+                    object_path,
+                    content,
+                    content_type,
+                    service_account_key.as_deref(),
+                )
+                .await
+            }
         }
         UploadMethod::Proxy {
             proxy_base_url,
@@ -247,27 +257,37 @@ pub async fn upload_file<C: StorageConfig>(
         UploadMethod::Direct {
             service_account_key,
         } => {
-            let bucket_url = config.bucket_url();
-            let url = url::Url::parse(bucket_url)
-                .with_context(|| format!("Invalid GCS URL: {}", bucket_url))?;
-            if url.scheme() != "gs" {
+            #[cfg(not(feature = "cloud-upload"))]
+            {
+                let _ = service_account_key;
                 anyhow::bail!(
-                    "Invalid GCS URL scheme: expected 'gs', got '{}'",
-                    url.scheme()
+                    "Direct GCS upload is not compiled into this build (missing feature `cloud-upload`)"
                 );
             }
-            let bucket = url
-                .host_str()
-                .context("GCS URL must have a bucket name")?
-                .to_string();
-            upload_file_direct(
-                &bucket,
-                object_path,
-                file_path,
-                content_type,
-                service_account_key.as_deref(),
-            )
-            .await
+            #[cfg(feature = "cloud-upload")]
+            {
+                let bucket_url = config.bucket_url();
+                let url = url::Url::parse(bucket_url)
+                    .with_context(|| format!("Invalid GCS URL: {}", bucket_url))?;
+                if url.scheme() != "gs" {
+                    anyhow::bail!(
+                        "Invalid GCS URL scheme: expected 'gs', got '{}'",
+                        url.scheme()
+                    );
+                }
+                let bucket = url
+                    .host_str()
+                    .context("GCS URL must have a bucket name")?
+                    .to_string();
+                upload_file_direct(
+                    &bucket,
+                    object_path,
+                    file_path,
+                    content_type,
+                    service_account_key.as_deref(),
+                )
+                .await
+            }
         }
         UploadMethod::Proxy {
             proxy_base_url,
@@ -327,27 +347,37 @@ where
         UploadMethod::Direct {
             service_account_key,
         } => {
-            let bucket_url = config.bucket_url();
-            let url = url::Url::parse(bucket_url)
-                .with_context(|| format!("Invalid GCS URL: {}", bucket_url))?;
-            if url.scheme() != "gs" {
+            #[cfg(not(feature = "cloud-upload"))]
+            {
+                let _ = (service_account_key, reader);
                 anyhow::bail!(
-                    "Invalid GCS URL scheme: expected 'gs', got '{}'",
-                    url.scheme()
+                    "Direct GCS upload is not compiled into this build (missing feature `cloud-upload`)"
                 );
             }
-            let bucket = url
-                .host_str()
-                .context("GCS URL must have a bucket name")?
-                .to_string();
-            upload_stream_direct(
-                &bucket,
-                object_path,
-                reader,
-                content_type,
-                service_account_key.as_deref(),
-            )
-            .await
+            #[cfg(feature = "cloud-upload")]
+            {
+                let bucket_url = config.bucket_url();
+                let url = url::Url::parse(bucket_url)
+                    .with_context(|| format!("Invalid GCS URL: {}", bucket_url))?;
+                if url.scheme() != "gs" {
+                    anyhow::bail!(
+                        "Invalid GCS URL scheme: expected 'gs', got '{}'",
+                        url.scheme()
+                    );
+                }
+                let bucket = url
+                    .host_str()
+                    .context("GCS URL must have a bucket name")?
+                    .to_string();
+                upload_stream_direct(
+                    &bucket,
+                    object_path,
+                    reader,
+                    content_type,
+                    service_account_key.as_deref(),
+                )
+                .await
+            }
         }
         UploadMethod::Proxy {
             proxy_base_url,
@@ -392,6 +422,7 @@ where
 }
 
 /// Stream an async reader directly to GCS via the gcloud-storage client.
+#[cfg(feature = "cloud-upload")]
 async fn upload_stream_direct<R: tokio::io::AsyncRead + Send + Sync + 'static>(
     bucket: &str,
     object_path: &str,
@@ -486,6 +517,7 @@ async fn upload_file_via_proxy(
 }
 
 /// Build a GCS client with optional service account key, or default ADC.
+#[cfg(feature = "cloud-upload")]
 async fn build_gcs_client(
     service_account_key: Option<&str>,
 ) -> anyhow::Result<gcloud_storage::client::Client> {
@@ -511,6 +543,7 @@ async fn build_gcs_client(
 }
 
 /// Upload a file directly to GCS by streaming from disk.
+#[cfg(feature = "cloud-upload")]
 async fn upload_file_direct(
     bucket: &str,
     object_path: &str,
@@ -547,6 +580,7 @@ async fn upload_file_direct(
 }
 
 /// Uploads bytes directly to GCS using the gcloud-storage client.
+#[cfg(feature = "cloud-upload")]
 async fn upload_bytes_direct(
     bucket: &str,
     object_path: &str,

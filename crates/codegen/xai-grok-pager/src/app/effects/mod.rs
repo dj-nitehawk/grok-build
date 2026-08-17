@@ -663,7 +663,7 @@ pub(crate) fn execute(
                     }
                     let summaries = tokio::task::spawn_blocking(move || {
                             let _permit = permit;
-                            xai_grok_foreign_sessions::scan_foreign_sessions(
+                            crate::foreign_sessions_api::scan_foreign_sessions(
                                 &cwd,
                                 enabled,
                             )
@@ -716,7 +716,7 @@ pub(crate) fn execute(
                             compat,
                             &grok_home,
                             |enabled| async move {
-                                tokio::task::spawn_blocking(move || xai_grok_foreign_sessions::most_recent_foreign_session(
+                                tokio::task::spawn_blocking(move || crate::foreign_sessions_api::most_recent_foreign_session(
                                         &cwd_for_scan,
                                         enabled,
                                         crate::app::foreign_sessions::RESUME_HINT_WINDOW,
@@ -4653,7 +4653,7 @@ fn session_info_fields(
     }
     push(
         "Shell version",
-        xai_grok_version::display_version(xai_grok_update::channel_label()),
+        xai_grok_version::display_version(crate::update_info::channel_label()),
         false,
     );
     push("Session ID", info.session_id.to_string(), false);

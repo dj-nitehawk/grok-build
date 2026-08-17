@@ -491,6 +491,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
+    #[cfg(feature = "memory")]
     async fn test_semantic_dedup_no_provider_allows_write() {
         use crate::{MemoryIndex, MemoryStorage, index::init_sqlite_vec};
         use tempfile::TempDir;
@@ -514,6 +515,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "memory")]
     async fn test_semantic_dedup_no_similar_content() {
         use crate::embedding::MockEmbeddingProvider;
         use crate::{MemoryIndex, MemoryStorage, index::init_sqlite_vec};
@@ -540,6 +542,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "memory")]
     async fn test_semantic_dedup_detects_identical_content() {
         use crate::embedding::{EmbeddingProvider, MockEmbeddingProvider};
         use crate::{MemoryIndex, MemoryStorage, index::init_sqlite_vec};
@@ -580,6 +583,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "memory")]
     async fn test_semantic_dedup_allows_different_content() {
         use crate::embedding::{EmbeddingProvider, MockEmbeddingProvider};
         use crate::{MemoryIndex, MemoryStorage, index::init_sqlite_vec};

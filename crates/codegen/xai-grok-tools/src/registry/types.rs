@@ -693,13 +693,16 @@ impl ToolRegistryBuilder {
         b.register::<grok_build::KillTerminalCommandTool>();
         b.register::<grok_build::TodoWriteTool>();
         b.register::<grok_build::UpdateGoalTool>();
+        #[cfg(feature = "workflows")]
         b.register::<grok_build::WorkflowTool>();
         b.register::<grok_build::TaskOutputTool>();
         b.register::<grok_build::GetTerminalCommandOutputTool>();
         b.register::<grok_build::WaitTasksTool>();
         b.register::<grok_build::TaskTool>();
         b.register::<grok_build::WebSearchTool>();
+        #[cfg(feature = "web-fetch")]
         b.register_with_params::<grok_build::WebFetchTool, grok_build::web_fetch::WebFetchParams>();
+        #[cfg(feature = "lsp")]
         b.register::<grok_build::LspTool>();
         b.register::<grok_build::ImageGenTool>();
         b.register::<grok_build::ImageEditTool>();
@@ -727,7 +730,9 @@ impl ToolRegistryBuilder {
         b.register::<opencode::OpenCodeGlobTool>();
         b.register::<opencode::OpenCodeTodoWriteTool>();
         b.register::<opencode::OpenCodeSkillTool>();
+        #[cfg(feature = "memory")]
         b.register::<crate::implementations::memory::search_tool::MemorySearchImpl>();
+        #[cfg(feature = "memory")]
         b.register::<crate::implementations::memory::get_tool::MemoryGetImpl>();
         b.register::<crate::implementations::search_tool::SearchTool>();
         b.register_with_params::<
@@ -758,6 +763,7 @@ impl ToolRegistryBuilder {
                 grok_build_hashline::HashlineGrepTool,
                 grok_build_hashline::config::HashlineSchemeParams,
             >();
+        #[cfg(feature = "lsp")]
         b.register_reminder(crate::reminders::LspDiagnosticsReminder);
         b.register_reminder(crate::reminders::TaskCompletionReminder);
         b.register_reminder(SkillDiscoveryReminder);
@@ -1079,6 +1085,7 @@ impl ToolRegistryBuilder {
                 }
             }
         }
+        #[cfg(feature = "web-fetch")]
         if let crate::implementations::grok_build::web_fetch::WebFetchConfig::Enabled { params } =
             &ctx.web_fetch_config
         {
@@ -2346,36 +2353,38 @@ mod tests {
             SCHEDULER_CREATE_TOOL_NAME, SCHEDULER_DELETE_TOOL_NAME,
         };
         let builder = ToolRegistryBuilder::new();
+        let mut tool_ids: Vec<&str> = vec![
+            "read_file",
+            "search_replace",
+            "run_terminal_cmd",
+            "get_task_output",
+            "kill_task",
+            "grep",
+            "list_dir",
+            "ask_user_question",
+            "enter_plan_mode",
+            "exit_plan_mode",
+            "todo_write",
+            "task",
+            "web_search",
+            IMAGE_GEN_TOOL_NAME,
+            IMAGE_TO_VIDEO_TOOL_NAME,
+            REFERENCE_TO_VIDEO_TOOL_NAME,
+            "monitor",
+            SCHEDULER_CREATE_TOOL_NAME,
+            SCHEDULER_DELETE_TOOL_NAME,
+            "scheduler_list",
+        ];
+        #[cfg(feature = "web-fetch")]
+        tool_ids.push("web_fetch");
+        #[cfg(feature = "lsp")]
+        tool_ids.push("lsp");
         let config = ToolServerConfig {
-            tools: [
-                "read_file",
-                "search_replace",
-                "run_terminal_cmd",
-                "get_task_output",
-                "kill_task",
-                "grep",
-                "list_dir",
-                "ask_user_question",
-                "enter_plan_mode",
-                "exit_plan_mode",
-                "todo_write",
-                "task",
-                "web_search",
-                "web_fetch",
-                "lsp",
-                IMAGE_GEN_TOOL_NAME,
-                IMAGE_TO_VIDEO_TOOL_NAME,
-                REFERENCE_TO_VIDEO_TOOL_NAME,
-                "monitor",
-                SCHEDULER_CREATE_TOOL_NAME,
-                SCHEDULER_DELETE_TOOL_NAME,
-                "scheduler_list",
-            ]
-            .into_iter()
-            .map(|id| ToolConfig::from_id(format!("GrokBuild:{id}")))
-            .chain(std::iter::empty::<ToolConfig>())
-            .chain(std::iter::empty::<ToolConfig>())
-            .collect(),
+            tools: tool_ids
+                .into_iter()
+                .map(|id| ToolConfig::from_id(format!("GrokBuild:{id}")))
+                .chain(std::iter::empty::<ToolConfig>())
+                .collect(),
             behavior_preset: None,
         };
         let tmp = TempDir::new().unwrap();

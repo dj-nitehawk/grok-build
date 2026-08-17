@@ -29,13 +29,13 @@ impl MvpAgent {
         &self,
         session_id: Option<&acp::SessionId>,
         cwd: &std::path::Path,
-    ) -> Option<(std::sync::Arc<xai_codebase_graph::IndexManagerHandle>, bool)> {
+    ) -> Option<(xai_grok_workspace::file_system::CodebaseIndexHandle, bool)> {
         let (handle, was_newly_started) = self.resolve_codebase_index(cwd)?;
         // Pin the index to the requesting session so the Weak in
         // CodebaseIndexManager doesn't orphan it immediately.
         if let Some(sid) = session_id {
             self.session_registry
-                .set_codebase_index(sid, std::sync::Arc::clone(&handle));
+                .set_codebase_index(sid, handle.clone());
         }
         Some((handle, was_newly_started))
     }
@@ -163,7 +163,14 @@ impl MvpAgent {
     pub(super) fn resolve_codebase_index(
         &self,
         cwd: &std::path::Path,
-    ) -> Option<(std::sync::Arc<xai_codebase_graph::IndexManagerHandle>, bool)> {
+    ) -> Option<(xai_grok_workspace::file_system::CodebaseIndexHandle, bool)> {
+        #[cfg(not(feature = "codebase-graph"))]
+        {
+            let _ = cwd;
+            return None;
+        }
+        #[cfg(feature = "codebase-graph")]
+        {
         use crate::agent::config::CodebaseIndexingSetting;
 
         let setting = self.cfg.borrow().features.codebase_indexing.clone();
@@ -214,6 +221,7 @@ impl MvpAgent {
             );
         }
         Some((handle, was_newly_started))
+        }
     }
 
     pub(super) fn indexed_roots_for(&self, cwd: &std::path::Path) -> Vec<String> {
@@ -233,7 +241,7 @@ impl MvpAgent {
     pub(super) fn get_or_create_codebase_index(
         &self,
         cwd: PathBuf,
-    ) -> (std::sync::Arc<xai_codebase_graph::IndexManagerHandle>, bool) {
+    ) -> (xai_grok_workspace::file_system::CodebaseIndexHandle, bool) {
         self.codebase_indexes.lock().get_or_create(cwd)
     }
 
@@ -242,7 +250,7 @@ impl MvpAgent {
     pub(crate) fn get_codebase_index(
         &self,
         cwd: &std::path::Path,
-    ) -> Option<std::sync::Arc<xai_codebase_graph::IndexManagerHandle>> {
+    ) -> Option<xai_grok_workspace::file_system::CodebaseIndexHandle> {
         self.codebase_indexes.lock().get(cwd)
     }
 }

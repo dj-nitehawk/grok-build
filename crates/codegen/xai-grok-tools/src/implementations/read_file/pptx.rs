@@ -12,7 +12,12 @@
 //! numerically (slide2 before slide10, not lexicographically), and each
 //! slide's notes are matched by the slide's own number instead of its
 //! position in the sorted list.
+//!
+//! Feature `pptx` (optional zip + quick-xml). Without it, returns a clear
+//! "not compiled in" error so read_file keeps working.
 
+#[cfg(feature = "pptx")]
+mod imp {
 use std::io::{Cursor, Read};
 
 use quick_xml::Reader;
@@ -229,4 +234,19 @@ mod tests {
         let err = extract_pptx_text_from_bytes(&bytes).unwrap_err();
         assert_eq!(err, "No slides found in PPTX");
     }
+}
+
+}
+
+#[cfg(feature = "pptx")]
+pub(crate) use imp::extract_pptx_text_from_bytes;
+
+/// Without feature `pptx`, PPTX extract is not linked (zip/quick-xml optional).
+#[cfg(not(feature = "pptx"))]
+#[allow(dead_code)]
+pub(crate) fn extract_pptx_text_from_bytes(_bytes: &[u8]) -> Result<String, String> {
+    Err(
+        "PPTX support is not compiled into this build (missing feature `pptx`)"
+            .to_string(),
+    )
 }

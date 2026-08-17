@@ -721,7 +721,7 @@ impl SessionRegistry {
     pub(super) fn set_codebase_index(
         &self,
         id: &acp::SessionId,
-        index: std::sync::Arc<xai_codebase_graph::IndexManagerHandle>,
+        index: xai_grok_workspace::file_system::CodebaseIndexHandle,
     ) {
         self.edit(id, |e| {
             e.resident.get_or_insert_default().codebase_index = Some(index);

@@ -1323,7 +1323,7 @@ async fn handle_call_records_rpc_metrics_and_collapses_unknown_method() {
             > kind_before,
         "a failed dispatch must also record its error_kind on the errors counter"
     );
-    let has_bogus_series = prometheus::gather()
+    let has_bogus_series = crate::prometheus_facade::gather()
         .iter()
         .filter(|mf| mf.name() == "grok_workspace_rpc_requests_total")
         .flat_map(|mf| mf.get_metric())

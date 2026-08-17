@@ -26,7 +26,7 @@ unicode-segmentation = { workspace = true }
 linkify = { workspace = true }
 tui-scrollbar = { workspace = true }
 
-# Markdown / syntax highlighting
+# Markdown / syntax highlighting (workspace syntect = default-fancy, no onig)
 xai-grok-markdown = { workspace = true }
 syntect = { workspace = true }
 anstyle = { workspace = true }
@@ -41,8 +41,9 @@ documented = { workspace = true }
 # VTE terminal emulation for native rendering of command output (SGR, cursor, \r)
 vte = { workspace = true }
 
-# System appearance detection (dark/light mode)
-dark-light = "2"
+# System appearance detection (dark/light mode). Optional so slim builds skip
+# the Linux ashpd/zbus stack (feature `system-theme`; see .okf/fork-sync.md slim strip policy).
+dark-light = { version = "2", optional = true }
 
 # Utilities
 strum = { workspace = true }
@@ -75,7 +76,8 @@ xai-grok-paths = { path = "../xai-grok-paths" }
 base64 = { workspace = true }
 
 # Image decoding/resizing for clipboard image validation before send
-image = { workspace = true, features = ["png", "jpeg", "tiff", "gif", "webp"] }
+# Fork slim: png+jpeg only; extras via feature `image-extra`.
+image = { workspace = true, features = ["png", "jpeg"] }
 
 # ID generation
 uuid = { workspace = true, features = ["v4"] }
@@ -104,6 +106,10 @@ serial_test = { workspace = true }
 tempfile = { workspace = true }
 
 [features]
+# Extra image codecs beyond png+jpeg.
+image-extra = ["image/gif", "image/webp", "image/tiff"]
+# Desktop dark/light probe via dark-light (Linux ashpd/zbus). Fork slim leaves off.
+system-theme = ["dep:dark-light"]
 # Exposes `#[cfg(test)]` test-only helpers (mock setters, test guards,
 # deterministic pinning) to downstream crates' test builds. Enabled by
 test-support = []

@@ -257,6 +257,7 @@ pub struct AuthManager {
     power_listener_started: std::sync::atomic::AtomicBool,
     /// Keeps the OS power listener alive for this manager's lifetime; dropping
     /// it stops the listener. `None` until started (or if unavailable).
+    #[cfg(feature = "system-power")]
     power_listener: parking_lot::Mutex<Option<xai_system_power::SystemPowerListener>>,
     /// Per-process `manual_auth` KPI debounce, shared by all recoveries on this
     /// manager so repeated 401s on the most-recent dead credential emit once.
@@ -495,6 +496,7 @@ impl AuthManager {
             refresh_drain_lock: parking_lot::Mutex::new(()),
             refresh_drain_cv: parking_lot::Condvar::new(),
             power_listener_started: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "system-power")]
             power_listener: parking_lot::Mutex::new(None),
             manual_auth: Default::default(),
             first_party_env_api_key_ok: std::sync::atomic::AtomicBool::new(true),
@@ -1868,6 +1870,8 @@ impl AuthManager {
             // up for the exchange instead; a straddled exchange loses the
             // rotated token, which is what revokes the family. Best-effort
             // (`None` ⇒ proceed as before), released when the exchange returns.
+            // Without feature `system-power`, hold_awake is unavailable; proceed.
+            #[cfg(feature = "system-power")]
             let _awake = if self.is_dark_wake() {
                 xai_grok_telemetry::unified_log::debug(
                     "auth.refresh.dark_wake_assertion",
@@ -1878,6 +1882,18 @@ impl AuthManager {
             } else {
                 None
             };
+            #[cfg(not(feature = "system-power"))]
+            if self.is_dark_wake() {
+                xai_grok_telemetry::unified_log::debug(
+                    "auth.refresh.dark_wake_assertion",
+                    None,
+                    Some(serde_json::json!({
+                        "reason": format!("{reason:?}"),
+                        "hold_awake": false,
+                        "compiled_in": false,
+                    })),
+                );
+            }
             refresher.refresh(reason).await
         };
         self.apply_refresh_outcome(outcome, reason, attempted_key, &file_lock)

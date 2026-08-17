@@ -310,7 +310,7 @@ pub(crate) fn test_app() -> AppView {
         keyboard_normalizer: KeyboardNormalizer::from_terminal_context(),
         voice_mode_enabled: false,
         voice_ui_active: false,
-        voice_config: xai_grok_voice::VoiceConfig::default(),
+        voice_config: crate::voice_rt::VoiceConfig::default(),
         voice_auth: None,
         voice_cmd_tx: None,
         voice_state: VoiceState::Idle,
@@ -1764,7 +1764,7 @@ fn welcome_ctrl_q_requires_confirmation() {
 #[test]
 fn welcome_ctrl_u_update_keeps_priority_over_foreign_resume() {
     let mut app = test_app();
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         cursor: true,
         ..Default::default()
     };
@@ -1784,8 +1784,8 @@ fn welcome_ctrl_u_update_keeps_priority_over_foreign_resume() {
     app.apply_foreign_resume_detection(
         launch_token,
         &canonical_cwd,
-        Some(xai_grok_foreign_sessions::RecentForeignSession {
-            tool: xai_grok_foreign_sessions::ForeignSessionTool::Cursor,
+        Some(crate::foreign_sessions_api::RecentForeignSession {
+            tool: crate::foreign_sessions_api::ForeignSessionTool::Cursor,
             native_id: "cursor-session".into(),
             age: std::time::Duration::from_secs(30),
         }),
