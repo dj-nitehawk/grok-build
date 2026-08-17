@@ -134,7 +134,7 @@ fn lfs_objects_dir(repo: &gix::Repository) -> PathBuf {
     let config = repo.config_snapshot();
     let configured = config
         .string("lfs.storage")
-        .map(|storage| gix::path::from_bstr(storage.as_ref()).into_owned());
+        .map(|storage| gix::path::from_bstr(storage).into_owned());
     match configured {
         Some(storage) if storage.is_absolute() => storage.join("objects"),
         Some(storage) => repo.common_dir().join(storage).join("objects"),
