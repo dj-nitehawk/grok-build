@@ -6,6 +6,10 @@
 //! `AGENTS.md`); these helpers are the string-level scrubbing primitives they
 //! share. Changes here affect every byte that leaves the process on either
 //! pipeline.
+//!
+//! Unused when feature `export-otel` is off (both pipelines are stubbed).
+
+#![cfg_attr(not(feature = "export-otel"), allow(dead_code))]
 
 use std::borrow::Cow;
 

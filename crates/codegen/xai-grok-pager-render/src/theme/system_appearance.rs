@@ -1,8 +1,9 @@
 //! System appearance detection for automatic day/night theming.
 //!
 //! Detection chain (each step only runs when the previous returns nothing):
-//! 1. `dark-light` desktop APIs — macOS `AppleInterfaceStyle`, Linux XDG
-//!    portal `org.freedesktop.appearance.color-scheme`, Windows registry
+//! 1. `dark-light` desktop APIs (feature `system-theme`) — macOS
+//!    `AppleInterfaceStyle`, Linux XDG portal color-scheme, Windows registry.
+//!    Without `system-theme`, this step is skipped (no `ashpd`/`zbus` on Linux).
 //! 2. Explicit env stamps — `GROK_APPEARANCE` / `LC_GROK_APPEARANCE`
 //!    (SSH + tmux / wrap / headless). See [`super::env_appearance`].
 //! 3. OSC 11 terminal background query — **startup-only**; see
@@ -110,13 +111,22 @@ fn resolve_appearance_chain(
 /// Used by `grok wrap` to stamp the *local* OS theme into the child env
 /// before SSH. Must not consult env hints — those may be a previous wrap
 /// hop's snapshot.
+///
+/// Without feature `system-theme`, returns `None` (desktop probe compiled out).
 #[must_use]
 pub fn detect_desktop() -> Option<SystemAppearance> {
-    match dark_light::detect() {
-        Ok(dark_light::Mode::Dark) => Some(SystemAppearance::Dark),
-        Ok(dark_light::Mode::Light) => Some(SystemAppearance::Light),
-        // Mode::Unspecified or Err — no system preference detected
-        _ => None,
+    #[cfg(feature = "system-theme")]
+    {
+        match dark_light::detect() {
+            Ok(dark_light::Mode::Dark) => Some(SystemAppearance::Dark),
+            Ok(dark_light::Mode::Light) => Some(SystemAppearance::Light),
+            // Mode::Unspecified or Err — no system preference detected
+            _ => None,
+        }
+    }
+    #[cfg(not(feature = "system-theme"))]
+    {
+        None
     }
 }
 
@@ -408,7 +418,7 @@ mod tests {
         set_mock(Some(SystemAppearance::Dark));
         assert_eq!(detect(), Some(SystemAppearance::Dark));
         clear_mock();
-        // After clearing, detect() calls dark_light::detect() for real.
+        // After clearing, detect() uses the real appearance chain.
         // We can't assert a specific value since it depends on the system,
         // but we can verify it doesn't panic.
         let _ = detect();

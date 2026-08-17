@@ -46,7 +46,10 @@ use xai_grok_shell::leader::{
 use xai_grok_shell::leader::{
     ControlPayload, LeaderClient, LeaderEnvUrls, connect_or_spawn, socket_path_for_ws_url,
 };
-use xai_grok_update::{UpdateConfig, auto_update, enforce_version_policy_or_exit};
+mod update_facade;
+use update_facade::{
+    UpdateConfig, auto_update, channel_label, channel_name, enforce_version_policy_or_exit,
+};
 /// Apply headless args to an existing config, only overriding values that are
 /// explicitly set. This allows environment defaults to be preserved when
 /// specific args are not provided.
@@ -1107,7 +1110,7 @@ async fn run_agent_command(
             "Grok Build (pager) - v{}",
             xai_grok_version::display_version_with_commit(
                 env!("VERSION_WITH_COMMIT"),
-                xai_grok_update::channel_label(),
+                channel_label(),
             )
         );
         if should_check_for_updates(no_auto_update) {
@@ -1803,7 +1806,7 @@ fn dispatch_version_if_requested(args: &PagerArgs) -> bool {
     }
     if let Err(error) = write_version(
         &mut std::io::stdout().lock(),
-        xai_grok_update::channel_label(),
+        channel_label(),
     ) {
         eprintln!("Error: {error}");
         std::process::exit(1);
@@ -1833,6 +1836,7 @@ fn main() {
     if dispatch_version_if_requested(&args) || dispatch_doctor_if_requested(&args) {
         return;
     }
+    #[cfg(feature = "pager-minimal")]
     xai_grok_pager_minimal::install();
     #[cfg(all(feature = "jemalloc", unix))]
     xai_grok_pager::memory_release::install_release_hook(purge_jemalloc_retained_pages);
@@ -1854,6 +1858,7 @@ fn main() {
         );
         std::process::exit(2);
     }
+    #[cfg(feature = "export-sentry")]
     let _sentry_guard = xai_grok_telemetry::sentry::init(xai_grok_telemetry::sentry::Config {
         client: "grok-pager",
         client_version: PAGER_CLIENT_VERSION,
@@ -1861,7 +1866,9 @@ fn main() {
         disabled: xai_grok_shell::agent::config::is_error_reporting_disabled_sync(),
     });
     xai_grok_pager::docs::extract_user_guide_docs(&xai_grok_shell::util::grok_home::grok_home());
+    // TTY restore always: interactive recovery must not depend on crash-report.
     xai_crash_handler::install_terminal_restore_only();
+    #[cfg(feature = "crash-report")]
     if xai_grok_shell::util::config::load_crash_handler_enabled_sync() {
         let crash_dir = xai_grok_shell::util::grok_home::grok_home().join("crash");
         if let Some(report) = xai_crash_handler::check_previous_crash(&crash_dir) {
@@ -1904,6 +1911,7 @@ fn main() {
             Some(startup) => eprintln!("{}", startup.user_report()),
             None => eprintln!("Error: {e:#}"),
         }
+        #[cfg(feature = "export-sentry")]
         drop(_sentry_guard);
         std::process::exit(1);
     }
@@ -1982,14 +1990,11 @@ async fn async_main(args: PagerArgs) -> Result<()> {
                 if json {
                     let payload = serde_json::json!({
                         "currentVersion": env!("VERSION_WITH_COMMIT"),
-                        "channel": xai_grok_update::channel_name().unwrap_or("unknown"),
+                        "channel": channel_name().unwrap_or("unknown"),
                     });
                     println!("{}", serde_json::to_string(&payload)?);
                 } else {
-                    write_version(
-                        &mut std::io::stdout().lock(),
-                        xai_grok_update::channel_label(),
-                    )?;
+                    write_version(&mut std::io::stdout().lock(), channel_label())?;
                 }
                 return Ok(());
             }
@@ -2226,22 +2231,36 @@ async fn async_main(args: PagerArgs) -> Result<()> {
     type UpdateWaitHandle = tokio::task::JoinHandle<std::io::Result<std::process::ExitStatus>>;
     let bg_update_wait: std::sync::Arc<tokio::sync::Mutex<Option<UpdateWaitHandle>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
-    let bg_update_rx: Option<tokio::sync::oneshot::Receiver<Option<auto_update::UpdateAvailable>>> =
-        if should_check_for_updates(args.no_auto_update) {
-            let update_config = update_config.clone();
-            let wait_slot = bg_update_wait.clone();
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            tokio::spawn(async move {
-                let check = auto_update::check_update_background(&update_config).await;
-                if let Some(mut child) = check.download {
-                    *wait_slot.lock().await = Some(tokio::spawn(async move { child.wait().await }));
-                }
-                let _ = tx.send(check.update);
-            });
-            Some(rx)
-        } else {
+    // Typed against pager's UpdateAvailable so slim stubs do not dual-define types.
+    let bg_update_rx: Option<
+        tokio::sync::oneshot::Receiver<Option<xai_grok_pager::update_info::UpdateAvailable>>,
+    > = {
+        #[cfg(feature = "auto-update")]
+        {
+            if should_check_for_updates(args.no_auto_update) {
+                let update_config = update_config.clone();
+                let wait_slot = bg_update_wait.clone();
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                tokio::spawn(async move {
+                    let check = auto_update::check_update_background(&update_config).await;
+                    if let Some(mut child) = check.download {
+                        *wait_slot.lock().await =
+                            Some(tokio::spawn(async move { child.wait().await }));
+                    }
+                    // Same type as pager re-export when feature is on.
+                    let _ = tx.send(check.update);
+                });
+                Some(rx)
+            } else {
+                None
+            }
+        }
+        #[cfg(not(feature = "auto-update"))]
+        {
+            let _ = &args.no_auto_update;
             None
-        };
+        }
+    };
     let result = xai_grok_pager::app::run(args, bg_update_rx).await;
     xai_grok_sandbox::flush();
     match result {

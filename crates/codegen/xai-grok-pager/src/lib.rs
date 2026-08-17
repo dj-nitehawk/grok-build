@@ -59,7 +59,10 @@ pub mod wrap_cmd;
 pub(crate) mod wrap_filter;
 pub(crate) mod wrap_restore;
 
+pub mod foreign_sessions_api;
+pub mod marketplace_info;
 pub mod tool_usage;
+pub mod update_info;
 
 // Presentation-primitives layer extracted into the sibling crate
 // `xai-grok-pager-render`. Re-exported at the crate root so existing
@@ -72,6 +75,10 @@ pub mod trace_cmd;
 pub mod tracing;
 pub mod unified_log;
 pub mod views;
+/// Voice crate facade (real or stub). Prefer this over `xai_grok_voice` so the
+/// optional `voice` feature can drop the heavy dep without rewriting call sites
+/// across main syncs more than once.
+pub mod voice_rt;
 pub mod voice;
 pub mod worktree_cmd;
 

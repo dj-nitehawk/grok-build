@@ -56,6 +56,9 @@ pub enum WebFetchError {
 
     #[error("content body does not match claimed content type {content_type} from {url}")]
     ContentTypeMismatch { content_type: String, url: String },
+
+    #[error("web_fetch is not compiled into this build (missing feature `web-fetch`)")]
+    NotCompiledIn,
 }
 
 /// Extra recovery guidance appended to an [`WebFetchError::SsrfBlocked`] message.

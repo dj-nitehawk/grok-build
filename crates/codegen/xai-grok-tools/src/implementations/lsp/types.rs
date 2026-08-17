@@ -1,7 +1,14 @@
 use std::collections::BTreeMap;
 
 use super::config::LspServerConfig;
-use super::manager::DiagnosticsSummary;
+
+/// Aggregated diagnostics text from language servers (shared by full manager + stub).
+#[derive(Debug, Clone)]
+pub struct DiagnosticsSummary {
+    pub text: String,
+    pub file_count: usize,
+    pub diagnostic_count: usize,
+}
 
 /// LSP configuration passed from shell. Same pattern as `WebSearchConfig`.
 #[derive(Debug, Clone, Default)]

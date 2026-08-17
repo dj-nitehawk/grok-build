@@ -10,6 +10,7 @@ pub mod activity;
 pub mod capability;
 pub mod channel;
 pub mod config;
+pub(crate) mod diag;
 pub mod discovery;
 pub mod envrc;
 pub mod error;
@@ -19,6 +20,7 @@ pub mod folder_trust;
 pub mod fs_notify;
 pub(crate) mod git_odb;
 pub mod handle;
+pub mod prometheus_facade;
 pub mod hub;
 pub mod hub_auth;
 pub mod hub_channel;
@@ -162,7 +164,7 @@ mod init_metrics_tests {
     fn init_metrics_is_idempotent_and_registers_baselines() {
         super::init_metrics();
         super::init_metrics();
-        let families = prometheus::gather();
+        let families = crate::prometheus_facade::gather();
         let has = |name: &str, want: &[(&str, &str)]| {
             families
                 .iter()
