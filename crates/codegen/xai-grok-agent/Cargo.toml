@@ -33,6 +33,14 @@ xai-tool-types.workspace = true
 [features]
 default = []
 default-bazel = []
+# Forward tools LSP tool surface (registration + default toolset entry).
+lsp = ["xai-grok-tools/lsp"]
+# Forward tools WorkflowTool registration + agent toolset entries.
+workflows = ["xai-grok-tools/workflows"]
+# Forward memory_search / memory_get tool registration + toolset entries.
+memory = ["xai-grok-tools/memory"]
+# Forward web_fetch tool registration + toolset entries.
+web-fetch = ["xai-grok-tools/web-fetch"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

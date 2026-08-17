@@ -2,16 +2,23 @@
 
 use std::fmt::Write as _;
 
+#[cfg(feature = "pdf")]
 use base64::Engine as _;
+#[cfg(feature = "pdf")]
 use base64::engine::general_purpose;
 
-use crate::types::output::{FileContent, PdfPageImage, PdfPageImages, ReadFileOutput};
+use crate::types::output::{FileContent, ReadFileOutput};
+#[cfg(feature = "pdf")]
+use crate::types::output::{PdfPageImage, PdfPageImages};
 
 use super::metadata::{bytes_to_metadata, is_pdf_magic};
 
 pub const MAX_PDF_BYTES: usize = 50 * 1024 * 1024;
+#[cfg(feature = "pdf")]
 const PDF_AUTO_READ_THRESHOLD: usize = 10;
+#[cfg(feature = "pdf")]
 const PDF_RENDER_DPI: u32 = 150;
+#[cfg(feature = "pdf")]
 const PDF_RENDER_JPEG_QUALITY: u8 = 85;
 pub const PDF_PROCESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -76,6 +83,11 @@ where
     }
 }
 
+/// PDF extract/render entry used by read_file tools.
+///
+/// Without feature `pdf` (`pdf_oxide` not linked), returns a clear error so the
+/// rest of read_file keeps working. Module path stays stable for upstream sync.
+#[cfg(feature = "pdf")]
 pub(crate) async fn handle_pdf(
     file_bytes: Vec<u8>,
     path: &std::path::Path,
@@ -109,6 +121,20 @@ pub(crate) async fn handle_pdf(
         },
     )
     .await
+}
+
+#[cfg(not(feature = "pdf"))]
+pub(crate) async fn handle_pdf(
+    file_bytes: Vec<u8>,
+    path: &std::path::Path,
+    pages: Option<String>,
+    format: Option<&str>,
+) -> Result<ReadFileOutput, xai_tool_runtime::ToolError> {
+    let _ = (file_bytes, pages, format);
+    Ok(ReadFileOutput::FileReadError(format!(
+        "PDF support is not compiled into this build (missing feature `pdf`): {}",
+        path.display()
+    )))
 }
 
 /// Parse a page range specification into sorted, deduplicated 0-based page indices.
@@ -175,6 +201,7 @@ pub fn parse_page_range(spec: &str, page_count: usize) -> Result<Vec<usize>, Str
     Ok(pages)
 }
 
+#[cfg(feature = "pdf")]
 fn open_pdf_document(bytes: Vec<u8>) -> Result<(pdf_oxide::PdfDocument, usize), String> {
     let doc = pdf_oxide::PdfDocument::from_bytes(bytes)
         .map_err(|e| format!("Failed to open PDF: {e}"))?;
@@ -190,6 +217,7 @@ fn open_pdf_document(bytes: Vec<u8>) -> Result<(pdf_oxide::PdfDocument, usize), 
     Ok((doc, page_count))
 }
 
+#[cfg(feature = "pdf")]
 fn open_pdf_and_resolve_pages(
     bytes: Vec<u8>,
     pages_spec: Option<&str>,
@@ -214,6 +242,7 @@ fn open_pdf_and_resolve_pages(
     Ok((doc, page_count, page_indices))
 }
 
+#[cfg(feature = "pdf")]
 pub(crate) fn render_pdf_pages(
     bytes: Vec<u8>,
     pages_spec: Option<&str>,
@@ -266,11 +295,13 @@ pub fn raw_text_to_file_content(text: String) -> ReadFileOutput {
     })
 }
 
+#[cfg(feature = "pdf")]
 enum PageTextStyle {
     GrokBuild,
     Cursor { total_pages: usize },
 }
 
+#[cfg(feature = "pdf")]
 fn append_page_body(text: &mut String, doc: &pdf_oxide::PdfDocument, page_idx: usize) {
     match doc.extract_text(page_idx) {
         Ok(page_text) => text.push_str(&page_text),
@@ -285,6 +316,7 @@ fn append_page_body(text: &mut String, doc: &pdf_oxide::PdfDocument, page_idx: u
     }
 }
 
+#[cfg(feature = "pdf")]
 fn extract_page_texts(
     doc: &pdf_oxide::PdfDocument,
     page_indices: &[usize],
@@ -313,6 +345,7 @@ fn extract_page_texts(
     Ok(text)
 }
 
+#[cfg(feature = "pdf")]
 fn extract_pdf_plain_text(bytes: Vec<u8>, style: PageTextStyle) -> Result<String, String> {
     let (doc, page_count) = open_pdf_document(bytes)?;
     let page_indices: Vec<usize> = (0..page_count).collect();
@@ -326,16 +359,23 @@ fn extract_pdf_plain_text(bytes: Vec<u8>, style: PageTextStyle) -> Result<String
 }
 
 /// Extract plain text from all PDF pages (no auto-read page limit).
-#[cfg(test)]
+#[cfg(all(test, feature = "pdf"))]
 pub(crate) fn extract_pdf_plain_text_all(bytes: Vec<u8>) -> Result<String, String> {
     extract_pdf_plain_text(bytes, PageTextStyle::GrokBuild)
 }
 
 /// Plain text from all PDF pages in the `Read` format.
+#[cfg(feature = "pdf")]
 pub fn extract_pdf_plain_text_cursor(bytes: Vec<u8>) -> Result<String, String> {
     extract_pdf_plain_text(bytes, PageTextStyle::Cursor { total_pages: 0 })
 }
 
+#[cfg(not(feature = "pdf"))]
+pub fn extract_pdf_plain_text_cursor(_bytes: Vec<u8>) -> Result<String, String> {
+    Err("PDF support is not compiled into this build (missing feature `pdf`)".into())
+}
+
+#[cfg(feature = "pdf")]
 pub(crate) fn extract_pdf_text(
     bytes: Vec<u8>,
     pages_spec: Option<&str>,
@@ -431,109 +471,129 @@ pub fn make_test_pdf(page_texts: &[&str]) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn extract_pdf_plain_text_all_reads_every_page() {
-        let pdf_bytes = make_test_pdf(&["Alpha", "Beta"]);
-        let text = extract_pdf_plain_text_all(pdf_bytes).unwrap();
-        assert!(text.contains("--- Page 1 ---"));
-        assert!(text.contains("--- Page 2 ---"));
-        assert!(text.contains("Alpha"));
-        assert!(text.contains("Beta"));
-    }
+    #[cfg(feature = "pdf")]
+    mod with_pdf_oxide {
+        use super::*;
 
-    #[test]
-    fn extract_pdf_plain_text_cursor_uses_page_of_markers() {
-        let pdf_bytes = make_test_pdf(&["Alpha", "Beta"]);
-        let text = extract_pdf_plain_text_cursor(pdf_bytes).unwrap();
-        assert!(text.contains("Alpha"));
-        assert!(text.contains("Beta"));
-        assert!(text.contains("-- 1 of 2 --"));
-        assert!(text.contains("-- 2 of 2 --"));
-        assert!(!text.contains("--- Page"));
-    }
+        #[test]
+        fn extract_pdf_plain_text_all_reads_every_page() {
+            let pdf_bytes = make_test_pdf(&["Alpha", "Beta"]);
+            let text = extract_pdf_plain_text_all(pdf_bytes).unwrap();
+            assert!(text.contains("--- Page 1 ---"));
+            assert!(text.contains("--- Page 2 ---"));
+            assert!(text.contains("Alpha"));
+            assert!(text.contains("Beta"));
+        }
 
-    #[test]
-    fn extract_pdf_text_returns_file_content() {
-        let pdf_bytes = make_test_pdf(&["Hello World"]);
-        let result = extract_pdf_text(pdf_bytes, None).unwrap();
-        match result {
-            ReadFileOutput::FileContent(fc) => {
-                assert!(fc.raw_output.contains("Hello World"));
-                assert!(fc.raw_output.contains("--- Page 1 ---"));
-                assert!(fc.content.contains('\u{2192}'));
+        #[test]
+        fn extract_pdf_plain_text_cursor_uses_page_of_markers() {
+            let pdf_bytes = make_test_pdf(&["Alpha", "Beta"]);
+            let text = extract_pdf_plain_text_cursor(pdf_bytes).unwrap();
+            assert!(text.contains("Alpha"));
+            assert!(text.contains("Beta"));
+            assert!(text.contains("-- 1 of 2 --"));
+            assert!(text.contains("-- 2 of 2 --"));
+            assert!(!text.contains("--- Page"));
+        }
+
+        #[test]
+        fn extract_pdf_text_returns_file_content() {
+            let pdf_bytes = make_test_pdf(&["Hello World"]);
+            let result = extract_pdf_text(pdf_bytes, None).unwrap();
+            match result {
+                ReadFileOutput::FileContent(fc) => {
+                    assert!(fc.raw_output.contains("Hello World"));
+                    assert!(fc.raw_output.contains("--- Page 1 ---"));
+                    assert!(fc.content.contains('\u{2192}'));
+                }
+                other => panic!("Expected FileContent, got {other:?}"),
             }
-            other => panic!("Expected FileContent, got {other:?}"),
+        }
+
+        #[test]
+        fn extract_pdf_text_multi_page() {
+            let pdf_bytes = make_test_pdf(&["Page One", "Page Two"]);
+            let result = extract_pdf_text(pdf_bytes, None).unwrap();
+            match result {
+                ReadFileOutput::FileContent(fc) => {
+                    assert!(fc.raw_output.contains("--- Page 1 ---"));
+                    assert!(fc.raw_output.contains("--- Page 2 ---"));
+                    assert!(fc.raw_output.contains("Page One"));
+                    assert!(fc.raw_output.contains("Page Two"));
+                }
+                other => panic!("Expected FileContent, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn extract_pdf_text_with_page_spec() {
+            let pdf_bytes = make_test_pdf(&["First", "Second", "Third"]);
+            let result = extract_pdf_text(pdf_bytes, Some("2")).unwrap();
+            match result {
+                ReadFileOutput::FileContent(fc) => {
+                    assert!(fc.raw_output.contains("--- Page 2 ---"));
+                    assert!(fc.raw_output.contains("Second"));
+                    assert!(!fc.raw_output.contains("--- Page 1 ---"));
+                    assert!(!fc.raw_output.contains("--- Page 3 ---"));
+                }
+                other => panic!("Expected FileContent, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn extract_pdf_text_invalid_pdf() {
+            let err = extract_pdf_text(b"not a pdf".to_vec(), None).unwrap_err();
+            assert!(err.contains("Failed to open PDF"), "got: {err}");
+        }
+
+        #[tokio::test]
+        async fn handle_pdf_format_text() {
+            let pdf_bytes = make_test_pdf(&["Test Content"]);
+            let tmp = tempfile::TempDir::new().unwrap();
+            let pdf_path = tmp.path().join("test.pdf");
+            std::fs::write(&pdf_path, &pdf_bytes).unwrap();
+            let result = handle_pdf(pdf_bytes, &pdf_path, None, Some("text"))
+                .await
+                .unwrap();
+            match result {
+                ReadFileOutput::FileContent(fc) => {
+                    assert!(fc.raw_output.contains("Test Content"));
+                    assert_eq!(fc.absolute_path, pdf_path);
+                }
+                other => panic!("Expected FileContent for format='text', got {other:?}"),
+            }
+        }
+
+        #[tokio::test]
+        async fn handle_pdf_format_image() {
+            let pdf_bytes = make_test_pdf(&["Some Text"]);
+            let path = std::path::Path::new("/tmp/test.pdf");
+            let result = handle_pdf(pdf_bytes, path, None, Some("image"))
+                .await
+                .unwrap();
+            assert!(matches!(result, ReadFileOutput::PdfPageImages(_)));
+        }
+
+        #[test]
+        fn render_pdf_pages_rejects_invalid_pdf() {
+            let err = render_pdf_pages(b"not a pdf".to_vec(), None, 10).unwrap_err();
+            assert!(err.contains("Failed to open PDF"), "got: {err}");
         }
     }
 
-    #[test]
-    fn extract_pdf_text_multi_page() {
-        let pdf_bytes = make_test_pdf(&["Page One", "Page Two"]);
-        let result = extract_pdf_text(pdf_bytes, None).unwrap();
-        match result {
-            ReadFileOutput::FileContent(fc) => {
-                assert!(fc.raw_output.contains("--- Page 1 ---"));
-                assert!(fc.raw_output.contains("--- Page 2 ---"));
-                assert!(fc.raw_output.contains("Page One"));
-                assert!(fc.raw_output.contains("Page Two"));
-            }
-            other => panic!("Expected FileContent, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn extract_pdf_text_with_page_spec() {
-        let pdf_bytes = make_test_pdf(&["First", "Second", "Third"]);
-        let result = extract_pdf_text(pdf_bytes, Some("2")).unwrap();
-        match result {
-            ReadFileOutput::FileContent(fc) => {
-                assert!(fc.raw_output.contains("--- Page 2 ---"));
-                assert!(fc.raw_output.contains("Second"));
-                assert!(!fc.raw_output.contains("--- Page 1 ---"));
-                assert!(!fc.raw_output.contains("--- Page 3 ---"));
-            }
-            other => panic!("Expected FileContent, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn extract_pdf_text_invalid_pdf() {
-        let err = extract_pdf_text(b"not a pdf".to_vec(), None).unwrap_err();
-        assert!(err.contains("Failed to open PDF"), "got: {err}");
-    }
-
+    #[cfg(not(feature = "pdf"))]
     #[tokio::test]
-    async fn handle_pdf_format_text() {
-        let pdf_bytes = make_test_pdf(&["Test Content"]);
-        let tmp = tempfile::TempDir::new().unwrap();
-        let pdf_path = tmp.path().join("test.pdf");
-        std::fs::write(&pdf_path, &pdf_bytes).unwrap();
-        let result = handle_pdf(pdf_bytes, &pdf_path, None, Some("text"))
-            .await
-            .unwrap();
-        match result {
-            ReadFileOutput::FileContent(fc) => {
-                assert!(fc.raw_output.contains("Test Content"));
-                assert_eq!(fc.absolute_path, pdf_path);
-            }
-            other => panic!("Expected FileContent for format='text', got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn handle_pdf_format_image() {
-        let pdf_bytes = make_test_pdf(&["Some Text"]);
+    async fn handle_pdf_reports_not_compiled() {
         let path = std::path::Path::new("/tmp/test.pdf");
-        let result = handle_pdf(pdf_bytes, path, None, Some("image"))
+        let result = handle_pdf(b"%PDF-1.4".to_vec(), path, None, Some("text"))
             .await
             .unwrap();
-        assert!(matches!(result, ReadFileOutput::PdfPageImages(_)));
-    }
-
-    #[test]
-    fn render_pdf_pages_rejects_invalid_pdf() {
-        let err = render_pdf_pages(b"not a pdf".to_vec(), None, 10).unwrap_err();
-        assert!(err.contains("Failed to open PDF"), "got: {err}");
+        match result {
+            ReadFileOutput::FileReadError(msg) => {
+                assert!(msg.contains("not compiled"), "got: {msg}");
+            }
+            other => panic!("expected FileReadError, got {other:?}"),
+        }
     }
 
     #[test]

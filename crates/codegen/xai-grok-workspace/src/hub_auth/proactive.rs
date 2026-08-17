@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
-use prometheus::{
+use crate::prometheus_facade::{
     Histogram, IntCounterVec, exponential_buckets, register_histogram, register_int_counter_vec,
 };
 use rand::Rng;

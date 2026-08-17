@@ -1381,7 +1381,7 @@ pub enum Effect {
     /// Scan enabled foreign session stores without delaying the native list.
     ScanForeignSessions {
         cwd: std::path::PathBuf,
-        compat: xai_grok_foreign_sessions::EnabledForeignSessionSources,
+        compat: crate::foreign_sessions_api::EnabledForeignSessionSources,
         grok_home: std::path::PathBuf,
         coordinator: crate::app::ForeignScanCoordinator,
         seq: u64,
@@ -1394,7 +1394,7 @@ pub enum Effect {
     /// Detect the newest resumable foreign session without delaying first paint.
     DetectForeignResumeHint {
         canonical_cwd: std::path::PathBuf,
-        compat: xai_grok_foreign_sessions::EnabledForeignSessionSources,
+        compat: crate::foreign_sessions_api::EnabledForeignSessionSources,
         grok_home: std::path::PathBuf,
         launch_token: u64,
     },
@@ -2312,7 +2312,7 @@ pub enum TaskResult {
     ForeignResumeHintDetected {
         canonical_cwd: std::path::PathBuf,
         launch_token: u64,
-        hint: Option<xai_grok_foreign_sessions::RecentForeignSession>,
+        hint: Option<crate::foreign_sessions_api::RecentForeignSession>,
     },
     /// Session list fetch failed.
     SessionListFailed {

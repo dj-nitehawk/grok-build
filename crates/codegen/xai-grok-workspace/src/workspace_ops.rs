@@ -1128,23 +1128,25 @@ fn index_root_for(
     };
     Ok(crate::session::git::find_git_root_from_path(&cwd).unwrap_or(cwd))
 }
+#[cfg(feature = "codebase-graph")]
 fn resolve_index_for_workspace(
     ws: &WorkspaceHandle,
     root: Option<&std::path::Path>,
 ) -> WorkspaceResult<(
-    std::sync::Arc<xai_codebase_graph::IndexManagerHandle>,
+    crate::file_system::CodebaseIndexHandle,
     std::path::PathBuf,
 )> {
     let index_root = index_root_for(ws, root)?;
     let (handle, _was_new) = ws.get_or_create_codebase_index(index_root.clone());
     Ok((handle, index_root))
 }
+#[cfg(feature = "codebase-graph")]
 fn resolve_index_for_file(
     ws: &WorkspaceHandle,
     root: Option<&std::path::Path>,
     file: &str,
 ) -> WorkspaceResult<(
-    std::sync::Arc<xai_codebase_graph::IndexManagerHandle>,
+    crate::file_system::CodebaseIndexHandle,
     std::path::PathBuf,
 )> {
     if root.is_none() {
@@ -1155,6 +1157,19 @@ fn resolve_index_for_file(
     }
     resolve_index_for_workspace(ws, root)
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeGotoDefinitionReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Ok(CodeNavResponse { locations: vec![] })
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeGotoDefinitionReq {
     async fn execute(
@@ -1170,6 +1185,19 @@ impl WorkspaceOp for CodeGotoDefinitionReq {
         Ok(query_result_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeGotoReferencesReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Ok(CodeNavResponse { locations: vec![] })
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeGotoReferencesReq {
     async fn execute(
@@ -1190,6 +1218,19 @@ impl WorkspaceOp for CodeGotoReferencesReq {
         Ok(query_result_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeFindDefinitionsReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Ok(CodeNavResponse { locations: vec![] })
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeFindDefinitionsReq {
     async fn execute(
@@ -1208,6 +1249,19 @@ impl WorkspaceOp for CodeFindDefinitionsReq {
         Ok(symbol_locations_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeFindReferencesReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Ok(CodeNavResponse { locations: vec![] })
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeFindReferencesReq {
     async fn execute(
@@ -1226,6 +1280,19 @@ impl WorkspaceOp for CodeFindReferencesReq {
         Ok(symbol_locations_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeIndexStatusReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Ok(CodeIndexStatusResponse { active: false, file_count: None, stats: None })
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeIndexStatusReq {
     async fn execute(
@@ -1257,6 +1324,7 @@ impl WorkspaceOp for CodeIndexStatusReq {
         }
     }
 }
+#[cfg(feature = "codebase-graph")]
 fn query_result_to_response(
     result: Result<xai_codebase_graph::QueryResult, xai_codebase_graph::QueryError>,
 ) -> CodeNavResponse {
@@ -1275,6 +1343,7 @@ fn query_result_to_response(
         Err(_) => CodeNavResponse { locations: vec![] },
     }
 }
+#[cfg(feature = "codebase-graph")]
 fn symbol_locations_to_response(
     locations: Vec<xai_codebase_graph::SymbolLocation>,
 ) -> CodeNavResponse {

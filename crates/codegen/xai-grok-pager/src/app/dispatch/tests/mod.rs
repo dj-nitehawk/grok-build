@@ -319,7 +319,7 @@ fn test_app() -> AppView {
         has_claude_import: false,
         voice_mode_enabled: false,
         voice_ui_active: false,
-        voice_config: xai_grok_voice::VoiceConfig::default(),
+        voice_config: crate::voice_rt::VoiceConfig::default(),
         voice_auth: None,
         voice_cmd_tx: None,
         voice_state: VoiceState::Idle,

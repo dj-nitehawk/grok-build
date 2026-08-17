@@ -60,12 +60,10 @@ pub(super) fn plugin_cta_candidates(
         Some(name) => sources.iter().position(|s| s.source_name == name),
         None => sources
             .iter()
-            .position(|s| {
-                xai_grok_plugin_marketplace::is_official_source_url(&s.source_url_or_path)
-            })
+            .position(|s| crate::marketplace_info::is_official_source_url(&s.source_url_or_path))
             .or_else(|| {
                 sources.iter().position(|s| {
-                    s.source_name == xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME
+                    s.source_name == crate::marketplace_info::OFFICIAL_SOURCE_NAME
                 })
             }),
     };
@@ -124,7 +122,7 @@ pub(super) fn plugin_cta_phase_for(
     is_dismissed: impl Fn(&str) -> bool,
 ) -> crate::app::agent_view::CtaPhase {
     use crate::app::agent_view::CtaPhase;
-    use xai_grok_plugin_marketplace::matcher::{KeywordCandidate, match_plugin_keyword};
+    use crate::marketplace_info::{KeywordCandidate, match_plugin_keyword};
 
     if !(enabled && cta_source_present) {
         return CtaPhase::Hidden;

@@ -51,10 +51,10 @@ pub use view::{DiagnosticSnapshot, view};
 /// The TUI passes true only while voice mode is enabled.
 /// Standalone doctor uses the same finding whenever this build supports capture and the probe is missing.
 pub fn apply_voice_probe(report: &mut DiagnosticReport, emit_missing_issue: bool) {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
-    match xai_grok_voice::input_device_info() {
+    match crate::voice_rt::input_device_info() {
         Ok(device) => {
             report.facts.voice = Some(VoiceFacts::Device {
                 name: device.name,
@@ -63,7 +63,7 @@ pub fn apply_voice_probe(report: &mut DiagnosticReport, emit_missing_issue: bool
         }
         Err(err) => {
             let error = match err {
-                xai_grok_voice::VoiceError::Config(message) => message,
+                crate::voice_rt::VoiceError::Config(message) => message,
                 other => other.to_string(),
             };
             report.facts.voice = Some(VoiceFacts::Missing {

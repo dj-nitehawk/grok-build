@@ -291,6 +291,7 @@ mod tests {
     }
 
     /// Small GIF must become PNG (not pass through as image/gif).
+    #[cfg(feature = "image-extra")]
     #[test]
     fn compress_small_gif_becomes_png() {
         use image::{ImageBuffer, Rgba};

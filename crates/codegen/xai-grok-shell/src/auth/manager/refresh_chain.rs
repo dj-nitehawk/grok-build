@@ -198,6 +198,8 @@ impl AuthManager {
                 ));
             }
             // A dark wake sends no `WillSleep`, so hold the system awake for the exchange.
+            // Without feature `system-power`, hold_awake is unavailable; proceed.
+            #[cfg(feature = "system-power")]
             let _awake = if self.is_dark_wake() {
                 xai_grok_telemetry::unified_log::debug(
                     "auth.refresh.dark_wake_assertion",
@@ -208,6 +210,18 @@ impl AuthManager {
             } else {
                 None
             };
+            #[cfg(not(feature = "system-power"))]
+            if self.is_dark_wake() {
+                xai_grok_telemetry::unified_log::debug(
+                    "auth.refresh.dark_wake_assertion",
+                    /*sid*/ None,
+                    Some(serde_json::json!({
+                        "reason": format!("{reason:?}"),
+                        "hold_awake": false,
+                        "compiled_in": false,
+                    })),
+                );
+            }
             refresher.refresh(reason).await
         };
         self.apply_refresh_outcome(outcome, reason, attempted_key, &file_lock)

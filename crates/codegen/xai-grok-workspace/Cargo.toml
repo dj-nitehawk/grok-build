@@ -38,11 +38,12 @@ xai-grok-agent = { path = "../xai-grok-agent" }
 xai-grok-tools = { path = "../xai-grok-tools" }
 xai-grok-tools-api = { path = "../xai-grok-tools-api" }
 # `DiagHandle`, held by the hub config and threaded through `connect_hub`.
-xai-grok-diag-server = { workspace = true }
+# Diagnostics HTTP server (feature `diag-server`). Slim TUI leaves off.
+xai-grok-diag-server = { workspace = true, optional = true }
 xai-grok-workspace-client = { path = "../xai-grok-workspace-client" }
-# Daemon/process-lifecycle machinery for `bin/workspace_server.rs` only; the
-# library never references it.
-xai-grok-workspace-daemon = { path = "../xai-grok-workspace-daemon" }
+# Daemon/process-lifecycle machinery for `bin/workspace_server.rs` only.
+# Optional; required-features on that bin. Slim TUI leaves off.
+xai-grok-workspace-daemon = { path = "../xai-grok-workspace-daemon", optional = true }
 xai-grok-workspace-types = { path = "../xai-grok-workspace-types" }
 xai-grok-config = { workspace = true }
 xai-dirs = { workspace = true }
@@ -52,7 +53,8 @@ toml = { workspace = true, features = ["preserve_order"] }
 dashmap = { workspace = true }
 agent-client-protocol = { workspace = true }
 xai-acp-lib = { workspace = true }
-xai-codebase-graph = { path = "../xai-codebase-graph" }
+# Optional codebase graph (feature `codebase-graph`). Fork slim leaves off.
+xai-codebase-graph = { path = "../xai-codebase-graph", optional = true }
 xai-grok-paths = { path = "../xai-grok-paths" }
 base64 = { workspace = true }
 infer = { workspace = true }
@@ -71,14 +73,16 @@ tree-sitter-bash = "0.25"
 url = { workspace = true }
 xai-grok-env = { workspace = true }
 humantime-serde = { workspace = true }
-prometheus = { workspace = true }
+# Optional local Prometheus families (feature `prometheus-metrics`).
+prometheus = { workspace = true, optional = true }
 glob = "0.3"
 xai-grok-sandbox = { path = "../xai-grok-sandbox", default-features = false }
 xai-grok-hooks = { path = "../xai-grok-hooks" }
 xai-hunk-tracker = { path = "../xai-hunk-tracker" }
-# `metrics` enables the SDK's metric-donation client (periodic Prometheus
-# registry gather → OTLP → hub donation pump); see metric_donation_reporter.
-xai-computer-hub-sdk = { workspace = true, features = ["metrics"] }
+# Hub OTLP donation (traces/logs/metrics) is feature `hub-telemetry` — off for
+# fork slim so product binaries skip the OTel/proto stack. workspace_server
+# enables it via product-full / --features hub-telemetry.
+xai-computer-hub-sdk = { workspace = true }
 xai-computer-hub-mcp-adapter = { path = "../../common/xai-computer-hub-mcp-adapter" }
 xai-grok-mcp = { path = "../xai-grok-mcp" }
 xai-file-utils = { path = "../xai-file-utils" }
@@ -121,6 +125,7 @@ nix = { workspace = true, features = ["signal", "process"] }
 [[bin]]
 name = "xai-workspace-server"
 path = "src/bin/workspace_server.rs"
+required-features = ["diag-server", "workspace-daemon"]
 
 [[bin]]
 name = "workspace-server-probe"
@@ -132,6 +137,22 @@ compression = []
 test-support = []
 test-util = []
 sandbox-enforce = ["xai-grok-sandbox/enforce"]
+# Hub WebSocket OTLP donation + xai-tracing OTLP + file-utils propagator.
+# Off by default for slim product builds; enable for workspace_server donation.
+hub-telemetry = [
+    "xai-computer-hub-sdk/metrics",
+    "xai-tracing/otlp",
+    "xai-file-utils/otel-context",
+    "xai-grok-workspace-daemon?/hub-telemetry",
+]
+# Local Prometheus metric families (ops scrape). Off for fork slim.
+prometheus-metrics = ["dep:prometheus", "xai-grok-workspace-daemon?/prometheus-metrics"]
+# Codebase graph index (multi-lang tree-sitter). Off for fork slim.
+codebase-graph = ["dep:xai-codebase-graph"]
+# Diagnostics HTTP server (workspace-server bin). Slim TUI leaves off.
+diag-server = ["dep:xai-grok-diag-server"]
+# Daemonize + preview supervisor (workspace-server bin). Slim TUI leaves off.
+workspace-daemon = ["dep:xai-grok-workspace-daemon"]
 default-bazel = [
     "sandbox-enforce",
     ]

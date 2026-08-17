@@ -10,6 +10,7 @@ use strum::{AsRefStr, Display, EnumIter, EnumString, IntoStaticStr};
 use xai_grok_tools::implementations::codex;
 use xai_grok_tools::implementations::grok_build;
 use xai_grok_tools::implementations::grok_build_concise;
+#[cfg(feature = "memory")]
 use xai_grok_tools::implementations::memory;
 use xai_grok_tools::implementations::opencode;
 use xai_grok_tools::implementations::search_tool;
@@ -183,9 +184,13 @@ pub fn workspace_grok_build_toolset() -> ToolServerConfig {
     tools.push((&grok_build::ImageGenTool).into());
     tools.push((&grok_build::ImageToVideoTool).into());
     tools.push((&grok_build::ReferenceToVideoTool).into());
+    #[cfg(feature = "web-fetch")]
     tools.push((&grok_build::WebFetchTool).into());
+    #[cfg(feature = "memory")]
     tools.push((&memory::search_tool::MemorySearchImpl).into());
+    #[cfg(feature = "memory")]
     tools.push((&memory::get_tool::MemoryGetImpl).into());
+    #[cfg(feature = "lsp")]
     tools.push((&grok_build::LspTool).into());
     ToolServerConfig {
         tools,
@@ -272,6 +277,7 @@ fn general_purpose_toolset() -> ToolServerConfig {
     grok_build_core_toolset(false)
 }
 fn grok_build_core_toolset(include_workflow: bool) -> ToolServerConfig {
+    #[allow(unused_mut)] // mutated only when feature `workflows` is on
     let mut tools = vec![
         bash_tool_config(),
         (&grok_build::ReadFileTool).into(),
@@ -292,6 +298,7 @@ fn grok_build_core_toolset(include_workflow: bool) -> ToolServerConfig {
         (&grok_build::UpdateGoalTool).into(),
     ];
     if include_workflow {
+        #[cfg(feature = "workflows")]
         tools.push((&grok_build::WorkflowTool).into());
     }
     ToolServerConfig {
@@ -315,6 +322,7 @@ fn grok_build_concise_toolset() -> ToolServerConfig {
             (&grok_build::SchedulerListTool).into(),
             (&grok_build::MonitorTool).into(),
             (&grok_build::UpdateGoalTool).into(),
+            #[cfg(feature = "workflows")]
             (&grok_build::WorkflowTool).into(),
         ],
         behavior_preset: None,
@@ -345,6 +353,7 @@ pub fn grok_build_hashline_toolset(
         (&search_tool::SearchTool).into(),
         (&use_tool::UseTool).into(),
         (&grok_build::UpdateGoalTool).into(),
+        #[cfg(feature = "workflows")]
         (&grok_build::WorkflowTool).into(),
     ]);
     ToolServerConfig {
@@ -430,6 +439,7 @@ fn grok_build_plan_toolset() -> ToolServerConfig {
             (&search_tool::SearchTool).into(),
             (&use_tool::UseTool).into(),
             (&grok_build::UpdateGoalTool).into(),
+            #[cfg(feature = "workflows")]
             (&grok_build::WorkflowTool).into(),
             // Plan mode tools
             (&grok_build::EnterPlanModeTool).into(),
@@ -467,6 +477,7 @@ fn orchestrator_toolset() -> ToolServerConfig {
             (&grok_build::ExitPlanModeTool).into(),
             (&grok_build::AskUserQuestionTool).into(),
             (&grok_build::UpdateGoalTool).into(),
+            #[cfg(feature = "workflows")]
             (&grok_build::WorkflowTool).into(),
             // Scheduling and monitoring
             (&grok_build::SchedulerCreateTool).into(),
@@ -475,13 +486,16 @@ fn orchestrator_toolset() -> ToolServerConfig {
             (&grok_build::MonitorTool).into(),
             // Web tools
             (&grok_build::WebSearchTool).into(),
+            #[cfg(feature = "web-fetch")]
             (&grok_build::WebFetchTool).into(),
             // Imagine
             (&grok_build::ImageGenTool).into(),
             (&grok_build::ImageToVideoTool).into(),
             (&grok_build::ReferenceToVideoTool).into(),
             // Memory
+            #[cfg(feature = "memory")]
             (&memory::MemorySearchImpl).into(),
+            #[cfg(feature = "memory")]
             (&memory::MemoryGetImpl).into(),
             // Intentionally excluded:
             // - SearchReplaceTool (no file editing — delegate to subagents)
@@ -515,6 +529,7 @@ fn grok_build_plan_no_subagents_toolset() -> ToolServerConfig {
             (&search_tool::SearchTool).into(),
             (&use_tool::UseTool).into(),
             (&grok_build::UpdateGoalTool).into(),
+            #[cfg(feature = "workflows")]
             (&grok_build::WorkflowTool).into(),
             // Plan mode tools
             (&grok_build::EnterPlanModeTool).into(),
@@ -548,6 +563,7 @@ fn grok_build_ask_user_toolset() -> ToolServerConfig {
             (&search_tool::SearchTool).into(),
             (&use_tool::UseTool).into(),
             (&grok_build::UpdateGoalTool).into(),
+            #[cfg(feature = "workflows")]
             (&grok_build::WorkflowTool).into(),
             // Ask user tool (without plan mode)
             (&grok_build::AskUserQuestionTool).into(),
@@ -1850,11 +1866,18 @@ mod tests {
         let gc = toolset_for_preset("grok-computer").unwrap();
         let gc_ids: std::collections::HashSet<&str> =
             gc.tools.iter().map(|t| t.id.as_str()).collect();
-        for excluded in [
+        #[cfg(feature = "lsp")]
+        let excluded = [
             ToolConfig::from(&grok_build::LspTool).id,
             ToolConfig::from(&grok_build::EnterPlanModeTool).id,
             ToolConfig::from(&grok_build::ExitPlanModeTool).id,
-        ] {
+        ];
+        #[cfg(not(feature = "lsp"))]
+        let excluded = [
+            ToolConfig::from(&grok_build::EnterPlanModeTool).id,
+            ToolConfig::from(&grok_build::ExitPlanModeTool).id,
+        ];
+        for excluded in excluded {
             assert!(
                 !gc_ids.contains(excluded.as_str()),
                 "grok-computer preset must not advertise `{excluded}`"
@@ -1863,11 +1886,18 @@ mod tests {
         let full = workspace_grok_build_toolset();
         let full_ids: std::collections::HashSet<&str> =
             full.tools.iter().map(|t| t.id.as_str()).collect();
-        for present in [
+        #[cfg(feature = "lsp")]
+        let present = [
             ToolConfig::from(&grok_build::LspTool).id,
             ToolConfig::from(&grok_build::EnterPlanModeTool).id,
             ToolConfig::from(&grok_build::ExitPlanModeTool).id,
-        ] {
+        ];
+        #[cfg(not(feature = "lsp"))]
+        let present = [
+            ToolConfig::from(&grok_build::EnterPlanModeTool).id,
+            ToolConfig::from(&grok_build::ExitPlanModeTool).id,
+        ];
+        for present in present {
             assert!(
                 full_ids.contains(present.as_str()),
                 "workspace_grok_build_toolset must ship `{present}`"

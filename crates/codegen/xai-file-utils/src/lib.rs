@@ -18,6 +18,12 @@ pub fn with_auth_retry(
 }
 pub mod gcs;
 pub mod queue;
+/// S3-compatible SDK backend. Full implementation when `cloud-upload` is on;
+/// stubs when off so external call sites keep stable paths for main syncs.
+#[cfg(feature = "cloud-upload")]
+pub mod s3;
+#[cfg(not(feature = "cloud-upload"))]
+#[path = "s3_disabled.rs"]
 pub mod s3;
 pub mod storage_client;
 pub mod trace_context;

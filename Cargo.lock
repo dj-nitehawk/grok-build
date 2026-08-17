@@ -5739,7 +5739,6 @@ version = "10.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0529410abe238729a60b108898784df8984c87f6054c9c4fcacc47e4803c1ce1"
 dependencies = [
- "aws-lc-rs",
  "base64",
  "ed25519-dalek",
  "getrandom 0.2.16",
@@ -8270,7 +8269,6 @@ version = "0.11.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
 dependencies = [
- "aws-lc-rs",
  "bytes",
  "getrandom 0.3.4",
  "lru-slab",
@@ -8685,7 +8683,6 @@ dependencies = [
  "mime_guess",
  "percent-encoding",
  "pin-project-lite",
- "quinn",
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
@@ -13189,6 +13186,7 @@ dependencies = [
  "url",
  "uuid",
  "xai-computer-hub-core",
+ "xai-computer-hub-sdk",
  "xai-tool-protocol",
  "xai-tool-runtime",
  "xai-tool-types",
@@ -13289,6 +13287,7 @@ dependencies = [
  "url",
  "xai-circuit-breaker",
  "xai-dirs",
+ "xai-file-utils",
  "xai-grok-auth",
  "xai-grok-extra-ca",
  "xai-grok-version",
@@ -14177,7 +14176,6 @@ dependencies = [
  "fs2",
  "futures",
  "futures-util",
- "gcloud-storage",
  "gethostname",
  "git2",
  "glob",
@@ -14996,6 +14994,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wiremock",
+ "xai-tracing",
 ]
 
 [[package]]

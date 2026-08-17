@@ -444,7 +444,7 @@ impl SessionActor {
         trigger: &str,
         snapshot: Option<MemoryFlushSnapshot>,
     ) -> bool {
-        use xai_grok_memory::flush::*;
+        use crate::session::memory::flush::*;
 
         // Atomically acquire the flushing lock. If another flush is already
         // running (idle timer, pre-compaction, or user-requested), skip.

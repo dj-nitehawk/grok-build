@@ -24,7 +24,8 @@ xai-grok-workspace-types = { path = "../xai-grok-workspace-types" }
 xai-grok-version = { workspace = true }
 xai-interjection-core = { workspace = true }
 xai-token-estimation = { workspace = true }
-async-lsp = { workspace = true }
+# Optional language-server client stack (feature `lsp`). Fork slim leaves off.
+async-lsp = { workspace = true, optional = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
@@ -32,21 +33,26 @@ crc32fast = { workspace = true }
 ignore = { workspace = true }
 infer = { workspace = true }
 globset = { workspace = true }
-image = { workspace = true, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
+# Fork slim: png+jpeg only. Extra codecs via feature `image-extra` / product-full.
+image = { workspace = true, features = ["png", "jpeg"] }
 kamadak-exif = { workspace = true, optional = true }
-pdf_oxide = { workspace = true }
-# PPTX text extraction (implementations/read_file/pptx.rs). Deliberately NOT
-# `workspace = true`: the workspace `zip` pin has default features on, which
-# drag aes/bzip2/lzma/zstd into the shipped pager binary. PPTX entries are
-# only ever stored or deflated.
-zip = { version = "3", default-features = false, features = ["deflate-flate2"] }
-quick-xml = { workspace = true }
+# Optional: PDF text/render path in read_file. Fork slim builds leave `pdf` off
+# (see .okf/fork-sync.md). Enable with `--features pdf` or composition `product-full`.
+pdf_oxide = { workspace = true, optional = true }
+# PPTX text extraction (implementations/read_file/pptx.rs). Optional under feature
+# `pptx`. Deliberately NOT `workspace = true`: the workspace `zip` pin has
+# default features on, which drag aes/bzip2/lzma/zstd into the shipped pager
+# binary. PPTX entries are only ever stored or deflated.
+zip = { version = "3", default-features = false, optional = true, features = ["deflate-flate2"] }
+quick-xml = { workspace = true, optional = true }
 indexmap = { workspace = true, features = ["serde"] }
 minijinja = { version = "2", features = ["custom_syntax"] }
 parking_lot = { workspace = true }
-htmd = { workspace = true }
-scraper = { workspace = true }
-reqwest = { workspace = true, features = ["rustls-tls", "json", "gzip", "brotli", "deflate"] }
+# HTML stack for web_fetch (feature `web-fetch`). Fork slim leaves off.
+htmd = { workspace = true, optional = true }
+scraper = { workspace = true, optional = true }
+# Compression codecs only when `web-fetch` is on (web_fetch HTTP client).
+reqwest = { workspace = true, features = ["rustls-tls", "json"] }
 pulldown-cmark = { workspace = true }
 regex = { workspace = true }
 schemars = { workspace = true }
@@ -124,6 +130,22 @@ workspace = true
 
 [features]
 default-bazel = ["serde"]
+# `pdf` is intentionally not in default (fork slim). Upstream-compat full builds
+# enable it via the composition root or `--features pdf`.
 default = ["serde"]
 serde = []
+pdf = ["dep:pdf_oxide"]
+lsp = ["dep:async-lsp"]
+# Register WorkflowTool (Rhai orchestration). Engine lives in shell/xai-workflow;
+# this flag only gates tool registry + agent toolset entries.
+workflows = []
+# Register memory_search / memory_get tools. Backend is injected by shell when
+# feature `memory` is on.
+memory = []
+# Extra image codecs beyond png+jpeg (gif/webp/bmp/tiff/ico).
+image-extra = ["image/gif", "image/webp", "image/bmp", "image/tiff", "image/ico"]
+# web_fetch tool + HTML-to-markdown stack (htmd/scraper) + response compression.
+web-fetch = ["dep:htmd", "dep:scraper", "reqwest/gzip", "reqwest/brotli", "reqwest/deflate"]
+# PPTX text extract in read_file (zip + quick-xml).
+pptx = ["dep:zip", "dep:quick-xml"]
 dhat-heap = ["dep:dhat"]
