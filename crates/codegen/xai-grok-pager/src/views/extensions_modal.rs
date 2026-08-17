@@ -129,8 +129,8 @@ fn hook_group_sort_key<'a>(source_dir: &'a str, meta: &HookSourceMeta) -> HookGr
 }
 
 fn is_official_marketplace_source(source: &xai_hooks_plugins_types::MarketplaceScanResult) -> bool {
-    source.source_name == xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME
-        || xai_grok_plugin_marketplace::is_official_source_url(&source.source_url_or_path)
+    source.source_name == crate::marketplace_info::OFFICIAL_SOURCE_NAME
+        || crate::marketplace_info::is_official_source_url(&source.source_url_or_path)
 }
 
 /// One marketplace source in display order with plugins sorted A–Z.
@@ -7014,7 +7014,7 @@ mod tests {
             mp("zeta-mp", "https://example.com/zeta", Some("boom"), &[]),
             mp(
                 "xAI Official",
-                xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL,
+                crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL,
                 None,
                 &["zeta", "alpha"],
             ),

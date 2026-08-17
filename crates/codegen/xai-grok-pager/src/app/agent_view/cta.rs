@@ -756,7 +756,7 @@ mod plugin_cta_notify_tests {
             } => {
                 assert_eq!(
                     source_url_or_path,
-                    xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL
+                    crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL
                 );
                 assert_eq!(plugin_relative_path.as_str(), "plugins/figma");
             }

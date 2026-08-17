@@ -18,15 +18,18 @@ path = "src/main.rs"
 [dependencies]
 # The pager library (all application logic + the public API main.rs drives).
 xai-grok-pager = { path = "../xai-grok-pager" }
-# Optional scrollback-native render mode, wired in via the fn-pointer seam.
-xai-grok-pager-minimal = { path = "../xai-grok-pager-minimal" }
+# Optional scrollback-native render mode (feature `pager-minimal`). Fork slim leaves off.
+xai-grok-pager-minimal = { path = "../xai-grok-pager-minimal", optional = true }
 
 # Agent runtime + leader/stdio/headless entry points.
 xai-grok-shell = { workspace = true }
-xai-grok-update = { path = "../xai-grok-update" }
+# Optional auto-update / version-policy path (feature `auto-update`). Slim leaves off.
+xai-grok-update = { path = "../xai-grok-update", optional = true }
 xai-grok-version = { workspace = true }
+# Telemetry facade always; export backends via features (export-sentry / export-otel).
 xai-grok-telemetry = { workspace = true }
 xai-grok-workspace = { workspace = true }
+# Always linked for TTY restore; crash blob install gated by `crash-report`.
 xai-crash-handler = { path = "../xai-crash-handler" }
 xai-acp-lib = { workspace = true }
 
@@ -81,12 +84,13 @@ clap = { workspace = true, features = ["derive"] }
 tempfile = { workspace = true }
 
 [features]
+# Fork slim defaults: no jemalloc / optional leaves. Capability features stay
+# off until explicitly enabled; see .okf/fork-sync.md "Slim / strip policy".
+# Use --features product-full or individual leaf features for a fat build.
 default = [
-    "jemalloc",
     "sandbox-enforce",
     ]
 default-bazel = [
-    "jemalloc",
     "sandbox-enforce",
     "local-workspace",
     ]
@@ -96,3 +100,47 @@ local-workspace = ["xai-grok-pager/local-workspace"]
 release-dist = [
     "xai-grok-pager/release-dist",
     ]
+# Sentry error reporting (forwards to telemetry export-sentry).
+export-sentry = ["xai-grok-telemetry/export-sentry"]
+# Internal OTLP + external customer OTEL stream (forwards to export-otel).
+export-otel = ["xai-grok-telemetry/export-otel"]
+# Crash blob install + previous-crash check. TTY restore always stays linked.
+crash-report = []
+# Scrollback-native minimal render mode (optional crate; fork does not use it).
+pager-minimal = ["dep:xai-grok-pager-minimal"]
+# Auto-update download/version-policy (optional xai-grok-update).
+auto-update = ["dep:xai-grok-update", "xai-grok-pager/auto-update"]
+# Plugin marketplace CLI/UI (forwards pager + shell).
+marketplace = ["xai-grok-pager/marketplace"]
+# Foreign session resume + Claude settings import (forwards pager + shell).
+foreign-sessions = ["xai-grok-pager/foreign-sessions"]
+# Meta-feature for a fat upstream-like build (opt-in; slim is default).
+# Forwards leaf capability features through direct deps (shell/pager/telemetry).
+product-full = [
+    "jemalloc",
+    "sandbox-enforce",
+    "xai-grok-pager/mermaid",
+    "xai-grok-pager/voice",
+    "xai-grok-pager/image-extra",
+    "xai-grok-pager/system-theme",
+    "xai-grok-shell/workflows",
+    "xai-grok-shell/memory",
+    "xai-grok-shell/pdf",
+    "xai-grok-shell/lsp",
+    "xai-grok-shell/cloud-upload",
+    "xai-grok-shell/hub-telemetry",
+    "xai-grok-shell/image-extra",
+    "xai-grok-shell/web-fetch",
+    "xai-grok-shell/pptx",
+    "xai-grok-shell/system-power",
+    "xai-grok-shell/prometheus-metrics",
+    "xai-grok-shell/codebase-graph",
+    "export-sentry",
+    "export-otel",
+    "crash-report",
+    # Phase 8 product surfaces (syntax stays on slim via fancy-regex; no gate).
+    "pager-minimal",
+    "auto-update",
+    "marketplace",
+    "foreign-sessions",
+]

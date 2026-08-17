@@ -153,7 +153,7 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
     let effects = match action {
         Action::Quit | Action::QuitConfirmed => {
             if let Some(tx) = &app.voice_cmd_tx {
-                let _ = tx.try_send(xai_grok_voice::VoiceCommand::Shutdown);
+                let _ = tx.try_send(crate::voice_rt::VoiceCommand::Shutdown);
             }
             let mut effects = unregister_all_active_sessions(app);
             effects.push(Effect::Quit);

@@ -22,6 +22,7 @@ fn make_image_content(width: u32, height: u32) -> ImageContent {
         "image/png",
     )
 }
+#[cfg(feature = "image-extra")]
 fn make_ico_content(width: u32, height: u32) -> ImageContent {
     let png = make_test_png(width, height);
     let buf = xai_test_utils::image::ico_with_png_frame(&png, width as u8, height as u8);
@@ -31,6 +32,7 @@ fn make_ico_content(width: u32, height: u32) -> ImageContent {
     )
 }
 /// An attached ICO survives as PNG instead of being dropped by the allow-list.
+#[cfg(feature = "image-extra")]
 #[tokio::test]
 async fn ico_attachment_transcoded_to_png() {
     let cache = fresh_cache();
@@ -47,6 +49,7 @@ async fn ico_attachment_transcoded_to_png() {
         image::ImageFormat::Png
     );
 }
+#[cfg(feature = "image-extra")]
 fn make_gif_content(width: u32, height: u32) -> ImageContent {
     use image::{ImageBuffer, Rgba};
     let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
@@ -60,6 +63,7 @@ fn make_gif_content(width: u32, height: u32) -> ImageContent {
     )
 }
 /// GIF must be PNG'd before send — engines do not sample GIF on the wire.
+#[cfg(feature = "image-extra")]
 #[tokio::test]
 async fn gif_attachment_transcoded_to_png() {
     let cache = fresh_cache();
@@ -610,6 +614,14 @@ fn persisted_image_reject_reason_verdicts() {
         "truncated JPEG must be rejected"
     );
     assert!(reason(&make_test_png(16, 16)).is_some_and(|r| r.contains("dimension floor")),);
+    assert!(reason(b"not an image").is_some());
+}
+
+/// GIF/ICO verdicts need codecs behind `image-extra` (slim is png+jpeg only).
+#[cfg(feature = "image-extra")]
+#[test]
+fn persisted_image_reject_reason_verdicts_gif_ico() {
+    let reason = persisted_image_reject_reason;
     let mut gif = Vec::new();
     image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
         64,
@@ -630,7 +642,6 @@ fn persisted_image_reject_reason_verdicts() {
     let mut garbage_ico = vec![0x00, 0x00, 0x01, 0x00];
     garbage_ico.extend_from_slice(&[0xAB; 64]);
     assert!(reason(&garbage_ico).is_some_and(|r| r.contains("Ico")));
-    assert!(reason(b"not an image").is_some());
 }
 /// Regression: a camera-class photo above the old 16 Mpx decode cap
 /// (production shape: a 5184×3888 ≈ 20 Mpx attachment refused with

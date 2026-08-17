@@ -1,22 +1,32 @@
-use opentelemetry::global;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Extract the current span's W3C `traceparent` string for propagation
 /// across channel/task boundaries where span context is lost.
+///
+/// Returns `None` when feature `otel-context` is off or no valid span is active.
 pub fn current_traceparent() -> Option<String> {
-    let current_span = tracing::Span::current();
-    if current_span.is_none() {
-        return None;
+    #[cfg(feature = "otel-context")]
+    {
+        use opentelemetry::global;
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+        let current_span = tracing::Span::current();
+        if current_span.is_none() {
+            return None;
+        }
+
+        let cx = current_span.context();
+        let mut carrier = std::collections::HashMap::new();
+        global::get_text_map_propagator(|p| {
+            p.inject_context(&cx, &mut carrier);
+        });
+
+        return carrier.remove("traceparent");
     }
-
-    let cx = current_span.context();
-    let mut carrier = std::collections::HashMap::new();
-    global::get_text_map_propagator(|p| {
-        p.inject_context(&cx, &mut carrier);
-    });
-
-    carrier.remove("traceparent")
+    #[cfg(not(feature = "otel-context"))]
+    {
+        None
+    }
 }
 
 pub fn inject_trace_context_into_request(
@@ -43,24 +53,36 @@ pub(crate) fn trace_context_headers() -> HeaderMap {
 }
 
 pub(crate) fn inject_trace_context(headers: &mut HeaderMap) {
-    // Prefer the context from the current tracing span (set by OpenTelemetryLayer).
-    // Fall back to opentelemetry::Context::current() (thread-local) for code paths
-    // that run outside a tracing span but on a thread that has an attached OTel context
-    // (e.g. tasks created via spawn_local that inherit the thread-local context).
-    let current_span = tracing::Span::current();
-    let cx = if current_span.is_none() {
-        opentelemetry::Context::current()
-    } else {
-        current_span.context()
-    };
+    #[cfg(feature = "otel-context")]
+    {
+        use opentelemetry::global;
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-    global::get_text_map_propagator(|propagator| {
-        propagator.inject_context(&cx, &mut HeaderMapInjector(headers));
-    });
+        // Prefer the context from the current tracing span (set by OpenTelemetryLayer).
+        // Fall back to opentelemetry::Context::current() (thread-local) for code paths
+        // that run outside a tracing span but on a thread that has an attached OTel context
+        // (e.g. tasks created via spawn_local that inherit the thread-local context).
+        let current_span = tracing::Span::current();
+        let cx = if current_span.is_none() {
+            opentelemetry::Context::current()
+        } else {
+            current_span.context()
+        };
+
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&cx, &mut HeaderMapInjector(headers));
+        });
+    }
+    #[cfg(not(feature = "otel-context"))]
+    {
+        let _ = headers;
+    }
 }
 
+#[cfg(feature = "otel-context")]
 struct HeaderMapInjector<'a>(&'a mut HeaderMap);
 
+#[cfg(feature = "otel-context")]
 impl opentelemetry::propagation::Injector for HeaderMapInjector<'_> {
     fn set(&mut self, key: &str, value: String) {
         match (HeaderName::try_from(key), HeaderValue::try_from(&value)) {
@@ -83,12 +105,20 @@ pub fn span_from_meta_traceparent(
     meta: &serde_json::Map<String, serde_json::Value>,
 ) -> tracing::Span {
     let span = tracing::info_span!("acp_dispatch");
-    if let Some(ctx) = meta
-        .get("traceparent")
-        .and_then(|v| v.as_str())
-        .and_then(extract_context)
+    #[cfg(feature = "otel-context")]
     {
-        let _ = span.set_parent(ctx);
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        if let Some(ctx) = meta
+            .get("traceparent")
+            .and_then(|v| v.as_str())
+            .and_then(extract_context)
+        {
+            let _ = span.set_parent(ctx);
+        }
+    }
+    #[cfg(not(feature = "otel-context"))]
+    {
+        let _ = meta;
     }
     span
 }
@@ -98,15 +128,24 @@ pub fn span_from_meta_traceparent(
 /// function so the span created by the macro becomes a child of the client's
 /// distributed trace.
 pub fn link_current_span_to_meta(meta: &serde_json::Value) {
-    if let Some(ctx) = meta
-        .get("traceparent")
-        .and_then(|v| v.as_str())
-        .and_then(extract_context)
+    #[cfg(feature = "otel-context")]
     {
-        let _ = tracing::Span::current().set_parent(ctx);
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        if let Some(ctx) = meta
+            .get("traceparent")
+            .and_then(|v| v.as_str())
+            .and_then(extract_context)
+        {
+            let _ = tracing::Span::current().set_parent(ctx);
+        }
+    }
+    #[cfg(not(feature = "otel-context"))]
+    {
+        let _ = meta;
     }
 }
 
+#[cfg(feature = "otel-context")]
 fn extract_context(traceparent: &str) -> Option<opentelemetry::Context> {
     use opentelemetry::trace::TraceContextExt;
 
@@ -133,6 +172,7 @@ mod tests {
         assert!(headers.get("traceparent").is_none());
     }
 
+    #[cfg(feature = "otel-context")]
     #[test]
     fn test_header_map_injector_valid_header() {
         let mut headers = HeaderMap::new();
@@ -151,6 +191,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "otel-context")]
     #[test]
     fn test_header_map_injector_invalid_header_name() {
         let mut headers = HeaderMap::new();
@@ -167,6 +208,7 @@ mod tests {
         assert!(headers.is_empty());
     }
 
+    #[cfg(feature = "otel-context")]
     #[test]
     fn test_header_map_injector_invalid_header_value() {
         let mut headers = HeaderMap::new();
@@ -183,6 +225,7 @@ mod tests {
         assert!(headers.is_empty());
     }
 
+    #[cfg(feature = "otel-context")]
     #[test]
     fn test_extract_context_rejects_invalid_traceparent() {
         assert!(extract_context("not-a-valid-traceparent").is_none());
@@ -191,6 +234,7 @@ mod tests {
 
     /// E2E: _meta.traceparent -> link_current_span_to_meta -> current span
     /// -> inject_trace_context_into_request -> outbound HTTP header carries same traceId.
+    #[cfg(feature = "otel-context")]
     #[test]
     fn test_link_meta_then_inject_propagates_trace_id() {
         use opentelemetry::trace::TracerProvider as _;
@@ -239,6 +283,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "otel-context")]
     #[test]
     fn test_inject_trace_context_into_request_preserves_existing_headers() {
         use opentelemetry::trace::{

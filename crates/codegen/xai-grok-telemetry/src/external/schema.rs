@@ -8,6 +8,11 @@
 //! must be defeated to leak a new attribute: this enum, the pinned
 //! [`EXTERNAL_ALLOWED_KEYS`] test, and the export-time validators in
 //! [`super::redact`]. Telemetry-owner review gates this file (CODEOWNERS).
+//!
+//! When feature `export-otel` is off, emit/redact are stubbed so some
+//! schema helpers are intentionally unused (kept for path stability).
+
+#![cfg_attr(not(feature = "export-otel"), allow(dead_code))]
 
 use crate::events;
 

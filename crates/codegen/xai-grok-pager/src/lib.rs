@@ -55,6 +55,11 @@ pub mod wrap_clipboard_image;
 pub mod wrap_cmd;
 pub(crate) mod wrap_filter;
 pub(crate) mod wrap_restore;
+
+pub mod foreign_sessions_api;
+pub mod marketplace_info;
+pub mod update_info;
+
 pub use xai_grok_pager_render::{
     appearance, clipboard, gboom, glyphs, host, link_opener, modal_window_state, prompt_images,
     render, syntax, terminal, theme, util,
@@ -65,5 +70,9 @@ pub mod trace_cmd;
 pub mod tracing;
 pub mod unified_log;
 pub mod views;
+/// Voice crate facade (real or stub). Prefer this over `xai_grok_voice` so the
+/// optional `voice` feature can drop the heavy dep without rewriting call sites
+/// across main syncs more than once.
+pub mod voice_rt;
 pub mod voice;
 pub mod worktree_cmd;

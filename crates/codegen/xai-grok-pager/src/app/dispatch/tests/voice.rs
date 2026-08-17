@@ -9,7 +9,7 @@ use super::*;
 fn voice_slash_submit_starts_recording_in_plan_mode() {
     use crate::app::app_view::InputOutcome;
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -72,7 +72,7 @@ fn voice_final_appends_to_prompt_with_single_space() {
     p.set_cursor(5);
     let redraw = crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "world".into(),
         },
     );
@@ -97,7 +97,7 @@ fn voice_final_preserves_mid_text_cursor() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "again".into(),
         },
     );
@@ -119,7 +119,7 @@ fn voice_final_into_empty_prompt_has_no_leading_space() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "hi there".into(),
         },
     );
@@ -141,7 +141,7 @@ fn voice_final_replaces_whitespace_only_draft() {
     p.set_cursor(0);
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal { text: "hi".into() },
+        crate::voice_rt::VoiceEvent::UtteranceFinal { text: "hi".into() },
     );
     let p = &app.agents.get(&id).unwrap().prompt;
     assert_eq!(p.text(), "hi");
@@ -163,7 +163,7 @@ fn voice_final_preserves_trailing_newline() {
         .set_text("line one\n");
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "line two".into(),
         },
     );
@@ -178,7 +178,7 @@ fn voice_final_preserves_trailing_newline() {
 /// `/voice` / Ctrl+Space (toggle) is left running — its release isn't ours.
 #[test]
 fn voice_ctrl_space_release_leaves_toggle_recording_running() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -209,7 +209,7 @@ fn voice_ctrl_space_release_leaves_toggle_recording_running() {
 /// registry, so this dispatcher is the enforcement point.
 #[test]
 fn voice_keybinding_on_restricted_tier_opens_upsell() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return; // The tier check runs after the AUDIO_SUPPORTED gate.
     }
     let mut app = test_app_with_agent();
@@ -233,7 +233,7 @@ fn voice_keybinding_on_restricted_tier_opens_upsell() {
 /// A paid-tier user's voice keybinding is not intercepted by the tier gate.
 #[test]
 fn voice_keybinding_on_paid_tier_not_gated() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -264,7 +264,7 @@ fn voice_interim_sets_then_error_clears_state() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::InterimTranscript {
+        crate::voice_rt::VoiceEvent::InterimTranscript {
             text: "partial".into(),
         },
     );
@@ -272,7 +272,7 @@ fn voice_interim_sets_then_error_clears_state() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "boom".into(),
             hint: None,
         },
@@ -296,7 +296,7 @@ fn voice_error_hint_lands_in_bound_agent_scrollback() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "no speech detected".into(),
             hint: Some("allow terminal mic access in system settings".into()),
         },
@@ -326,7 +326,7 @@ fn voice_error_hint_lands_in_bound_agent_scrollback() {
     let before = app.agents.get(&id).unwrap().scrollback.len();
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "boom".into(),
             hint: None,
         },
@@ -348,7 +348,7 @@ fn voice_error_hint_dropped_for_dashboard_dispatch() {
     let before = app.agents.get(&AgentId(0)).unwrap().scrollback.len();
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "no speech detected".into(),
             hint: Some("allow terminal mic access in system settings".into()),
         },
@@ -372,7 +372,7 @@ fn voice_interim_ignored_after_stop() {
     app.voice_state = VoiceState::Idle; // not recording → interim is None
     let redraw = crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::InterimTranscript {
+        crate::voice_rt::VoiceEvent::InterimTranscript {
             text: "late".into(),
         },
     );
@@ -405,7 +405,7 @@ fn voice_interim_kept_on_stop_then_cleared_by_final() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "partial".into(),
         },
     );
@@ -417,7 +417,7 @@ fn voice_interim_kept_on_stop_then_cleared_by_final() {
 fn voice_toggle_starts_and_stops() {
     // Starting routes through the `/voice` gate, which requires compiled-in
     // audio capture; skip on builds without a `cpal` backend.
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -430,14 +430,14 @@ fn voice_toggle_starts_and_stops() {
     assert!(app.voice_listening());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttPress)
+        Ok(crate::voice_rt::VoiceCommand::PttPress)
     ));
 
     dispatch(Action::VoiceToggle, &mut app);
     assert!(!app.voice_listening());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 
@@ -465,7 +465,7 @@ fn voice_toggle_silent_no_op_when_flag_disabled() {
 fn voice_toggle_starts_without_voice_mode_prereq() {
     // Ctrl+Space is a direct start — it no longer requires `/voice` first.
     // Skip when audio capture isn't compiled in (see sibling test).
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -481,7 +481,7 @@ fn voice_toggle_starts_without_voice_mode_prereq() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttPress)
+        Ok(crate::voice_rt::VoiceCommand::PttPress)
     ));
 }
 
@@ -489,7 +489,7 @@ fn voice_toggle_starts_without_voice_mode_prereq() {
 fn voice_mode_enable_starts_recording_and_stays_on() {
     // `/voice` gates on compiled-in audio capture; skip when the build has
     // no `cpal` backend (e.g. Bazel/headless), where enabling is a no-op.
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -508,7 +508,7 @@ fn voice_mode_enable_starts_recording_and_stays_on() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttPress)
+        Ok(crate::voice_rt::VoiceCommand::PttPress)
     ));
 
     // `EnableVoiceMode` is start-only (not a toggle): running it again while
@@ -525,7 +525,7 @@ fn voice_mode_enable_starts_recording_and_stays_on() {
 #[test]
 fn voice_mode_on_requests_lazy_pipeline_when_missing() {
     // Skip when audio capture isn't compiled in (see sibling test).
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -544,7 +544,7 @@ fn voice_toggle_while_spawn_pending_keeps_start_armed() {
     // A second Ctrl+Space while the pipeline is still spawning re-affirms
     // the queued start rather than cancelling it (there's no visible recording
     // yet to toggle off).
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -567,7 +567,7 @@ fn voice_toggle_preserves_pending_ctrl_space_hold_cancel() {
     // A Ctrl+Space quick-tap queues a hold-owned cold-start; a Ctrl+Space toggle
     // arriving before the pipeline spawns must re-affirm it without clearing
     // hold-ownership, so the matching Ctrl+Space release still cancels the tap.
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -611,7 +611,7 @@ fn voice_toggle_can_always_stop_even_with_flag_disabled() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 
@@ -636,7 +636,7 @@ fn voice_stop_stops_and_drops_pending_cold_start() {
     assert!(!app.voice_state.hold());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 
@@ -690,7 +690,7 @@ fn voice_stt_language_change_recycles_pipeline() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::Shutdown)
+        Ok(crate::voice_rt::VoiceCommand::Shutdown)
     ));
     assert!(matches!(
         effects.as_slice(),
@@ -808,7 +808,7 @@ fn voice_submit_includes_interim() {
     assert!(!app.voice_listening());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 

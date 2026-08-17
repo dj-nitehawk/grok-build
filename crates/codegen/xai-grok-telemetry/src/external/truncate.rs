@@ -5,6 +5,8 @@
 //! tool-input JSON is capped at 4 KB / depth 2 / 20 items per collection, and
 //! gated prompt/content text is capped at 60 KB.
 
+#![cfg_attr(not(feature = "export-otel"), allow(dead_code))]
+
 /// Values longer than this are truncated…
 pub const MAX_STRING_LEN: usize = 512;
 /// …to their first 128 chars + [`TRUNCATION_MARKER`].

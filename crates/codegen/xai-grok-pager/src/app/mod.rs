@@ -594,7 +594,7 @@ async fn bounded_connect(
         attempt,
         version: xai_grok_version::display_version_with_commit(
             xai_grok_version::full_version(),
-            xai_grok_update::channel_label(),
+            crate::update_info::channel_label(),
         ),
         log_path: xai_grok_telemetry::unified_log::path(),
     };
@@ -648,7 +648,7 @@ async fn bounded_connect(
 pub async fn run(
     args: PagerArgs,
     bg_update_rx: Option<
-        tokio::sync::oneshot::Receiver<Option<xai_grok_update::auto_update::UpdateAvailable>>,
+        tokio::sync::oneshot::Receiver<Option<crate::update_info::UpdateAvailable>>,
     >,
 ) -> anyhow::Result<bool> {
     xai_tty_utils::redirect_native_stderr();

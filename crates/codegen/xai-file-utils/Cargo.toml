@@ -12,15 +12,18 @@ base64.workspace = true
 dunce = { workspace = true }
 xai-circuit-breaker = { workspace = true }
 xai-grok-version = { workspace = true }
+# Direct GCS (gcloud-storage) and S3 SDK backends are optional. Proxy uploads
+# via StorageClient + events/queue stay always-on. Fork slim leaves
+# `cloud-upload` off (see .okf/fork-sync.md).
 aws-sdk-s3 = { version = "1", default-features = false, features = [
     "rt-tokio",
-] }
+], optional = true }
 aws-config = { version = "1", default-features = false, features = [
     "rt-tokio",
     "sso",
     "credentials-process",
-] }
-aws-smithy-http-client = { version = "1", features = ["rustls-ring"] }
+], optional = true }
+aws-smithy-http-client = { version = "1", features = ["rustls-ring"], optional = true }
 futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -36,10 +39,12 @@ sha2 = { workspace = true, features = ["force-soft"] }
 xai-grok-auth = { path = "../xai-grok-auth", features = ["middleware"] }
 prod-mc-cli-chat-proxy-types = { path = "../../../prod/mc/cli-chat-proxy-types" }
 async-compression = { workspace = true, features = ["tokio"] }
-gcloud-storage = { workspace = true }
-opentelemetry = { workspace = true }
+gcloud-storage = { workspace = true, optional = true }
+# W3C traceparent inject for StorageClient HTTP. Optional so slim builds skip
+# the OpenTelemetry propagator stack (see .okf/fork-sync.md).
+opentelemetry = { workspace = true, optional = true }
 reflink-copy = { workspace = true }
-tracing-opentelemetry = { workspace = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 url = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true, features = ["io"] }
@@ -47,7 +52,17 @@ zstd.workspace = true
 
 
 [features]
+default = []
 default-bazel = []
+# Direct GCS service-account + AWS S3 SDK backends (heavy). Proxy mode stays.
+cloud-upload = [
+    "dep:aws-sdk-s3",
+    "dep:aws-config",
+    "dep:aws-smithy-http-client",
+    "dep:gcloud-storage",
+]
+# OpenTelemetry propagator for W3C traceparent on storage HTTP calls.
+otel-context = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 
 [dev-dependencies]
@@ -58,6 +73,8 @@ xai-test-utils = { workspace = true }
 filetime = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Integration tests that assert W3C inject need the optional propagator.
+xai-file-utils = { path = ".", features = ["otel-context"] }
 
 [lints]
 workspace = true

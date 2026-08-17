@@ -15,4 +15,6 @@ pub use pdf::{
 };
 
 // Internal helpers still used only inside this crate.
-pub(crate) use pdf::{handle_pdf, raw_text_to_file_content};
+pub(crate) use pdf::handle_pdf;
+#[cfg(feature = "pptx")]
+pub(crate) use pdf::raw_text_to_file_content;

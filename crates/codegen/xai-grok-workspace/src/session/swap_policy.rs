@@ -2,7 +2,7 @@
 //! [`SwapPolicy::evaluate`] over a [`SessionSnapshot`]. The exhaustive match
 //! is the spec; the matrix test's `expected_decision` mirrors it row by row.
 
-use prometheus::{IntCounterVec, register_int_counter_vec};
+use crate::prometheus_facade::{IntCounterVec, register_int_counter_vec};
 
 use crate::activity::ActivityTracker;
 use crate::session::WorkspaceSession;

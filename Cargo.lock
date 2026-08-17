@@ -5763,7 +5763,6 @@ version = "10.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0529410abe238729a60b108898784df8984c87f6054c9c4fcacc47e4803c1ce1"
 dependencies = [
- "aws-lc-rs",
  "base64",
  "ed25519-dalek",
  "getrandom 0.2.16",
@@ -7136,28 +7135,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "onig"
-version = "6.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "336b9c63443aceef14bea841b899035ae3abe89b7c486aaf4c5bd8aafedac3f0"
-dependencies = [
- "bitflags 2.13.0",
- "libc",
- "once_cell",
- "onig_sys",
-]
-
-[[package]]
-name = "onig_sys"
-version = "69.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f86c6eef3d6df15f23bcfb6af487cbd2fed4e5581d58d5bf1f5f8b7f6727dc"
-dependencies = [
- "cc",
- "pkg-config",
-]
-
-[[package]]
 name = "oorandom"
 version = "11.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8316,7 +8293,6 @@ version = "0.11.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
 dependencies = [
- "aws-lc-rs",
  "bytes",
  "getrandom 0.3.4",
  "lru-slab",
@@ -8731,7 +8707,6 @@ dependencies = [
  "mime_guess",
  "percent-encoding",
  "pin-project-lite",
- "quinn",
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
@@ -9056,7 +9031,6 @@ version = "0.23.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "758025cb5fccfd3bc2fd74708fd4682be41d99e5dff73c377c0646c6012c73a4"
 dependencies = [
- "aws-lc-rs",
  "log",
  "once_cell",
  "ring",
@@ -10415,7 +10389,6 @@ dependencies = [
  "flate2",
  "fnv",
  "once_cell",
- "onig",
  "plist",
  "regex-syntax",
  "serde",
@@ -13242,6 +13215,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "xai-computer-hub-core",
+ "xai-computer-hub-sdk",
  "xai-tool-protocol",
  "xai-tool-runtime",
  "xai-tool-types",
@@ -13328,6 +13302,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "xai-circuit-breaker",
+ "xai-file-utils",
  "xai-grok-auth",
  "xai-grok-extra-ca",
  "xai-grok-version",
@@ -14197,7 +14172,6 @@ dependencies = [
  "fs2",
  "futures",
  "futures-util",
- "gcloud-storage",
  "gethostname",
  "git2",
  "glob",
@@ -14977,6 +14951,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wiremock",
+ "xai-tracing",
 ]
 
 [[package]]
