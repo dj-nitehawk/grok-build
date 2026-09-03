@@ -21,7 +21,7 @@ pub const ENV_SSL_CERT_FILE: &str = "SSL_CERT_FILE";
 pub fn ensure_default_crypto_provider() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        if rustls::crypto::aws_lc_rs::default_provider()
+        if rustls::crypto::ring::default_provider()
             .install_default()
             .is_err()
         {
@@ -134,10 +134,10 @@ fn client_config_with_shared_roots() -> rustls::ClientConfig {
     roots.add_parsable_certificates(extra_root_ders().iter().cloned().map(CertificateDer::from));
     #[expect(clippy::expect_used)]
     rustls::ClientConfig::builder_with_provider(
-        rustls::crypto::aws_lc_rs::default_provider().into(),
+        rustls::crypto::ring::default_provider().into(),
     )
     .with_safe_default_protocol_versions()
-    .expect("aws-lc-rs supports the default protocol versions")
+    .expect("ring supports the default protocol versions")
     .with_root_certificates(roots)
     .with_no_client_auth()
 }

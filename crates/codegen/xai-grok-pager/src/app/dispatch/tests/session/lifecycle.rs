@@ -8,6 +8,9 @@ fn simulate_release_build() {
 }
 #[test]
 fn voice_on_welcome_creates_session_and_records() {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
+        return;
+    }
     let mut app = test_app();
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);
     app.voice_mode_enabled = true;
@@ -24,7 +27,7 @@ fn voice_on_welcome_creates_session_and_records() {
     assert_eq!(app.voice_recording_target(), Some(VoiceTarget::Agent(id)));
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttPress)
+        Ok(crate::voice_rt::VoiceCommand::PttPress)
     ));
 }
 #[test]
@@ -42,7 +45,7 @@ fn voice_final_routes_to_recording_session_not_active_view() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "hello".into(),
         },
     );
@@ -56,7 +59,7 @@ fn voice_final_dropped_after_recording_session_cleared() {
     app.voice_state = VoiceState::Idle;
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "late".into(),
         },
     );
@@ -87,7 +90,7 @@ fn voice_auto_stops_when_leaving_recording_session() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 #[test]

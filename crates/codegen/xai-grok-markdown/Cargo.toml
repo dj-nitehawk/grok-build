@@ -18,6 +18,7 @@ linkify = { workspace = true }
 pulldown-cmark = { workspace = true }
 ratatui = { workspace = true }
 supports-color = { workspace = true }
+# Workspace pins default-fancy (no Oniguruma). two-face is syntect-fancy.
 syntect = { workspace = true }
 two-face = { workspace = true }
 textwrap = { workspace = true }

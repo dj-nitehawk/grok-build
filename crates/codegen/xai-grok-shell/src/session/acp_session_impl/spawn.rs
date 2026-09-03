@@ -950,7 +950,17 @@ pub(crate) async fn spawn_session_actor(
                     session_id: session_info.id.to_string(),
                 },
             ),
-            embedding_credentials: embed_credentials,
+            embedding_credentials: {
+                #[cfg(feature = "memory")]
+                {
+                    embed_credentials
+                }
+                #[cfg(not(feature = "memory"))]
+                {
+                    let _ = embed_credentials;
+                    crate::session::memory::EndpointScopedCredentials::none()
+                }
+            },
         };
         let backend = crate::session::memory::MemoryBackendImpl::from_session_params(
             storage.clone(),

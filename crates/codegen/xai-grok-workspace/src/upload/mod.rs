@@ -1,7 +1,7 @@
 pub(crate) mod environment;
 use crate::telemetry::dc_log;
 use environment::WorkspaceIdentity;
-use prometheus::{IntCounterVec, IntGauge, register_int_counter_vec, register_int_gauge};
+use crate::prometheus_facade::{IntCounterVec, IntGauge, register_int_counter_vec, register_int_gauge};
 use std::sync::Arc;
 use std::sync::LazyLock;
 use xai_computer_hub_sdk::auth::{AuthCredential, AuthProvider};

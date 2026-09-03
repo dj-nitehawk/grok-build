@@ -147,6 +147,7 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(feedback::FeedbackCommand),
         Arc::new(privacy::PrivacyCommand),
         Arc::new(doctor::DoctorCommand),
+        #[cfg(feature = "foreign-sessions")]
         Arc::new(import_claude::ImportClaudeCommand),
         Arc::new(login::LoginCommand),
         Arc::new(logout::LogoutCommand),

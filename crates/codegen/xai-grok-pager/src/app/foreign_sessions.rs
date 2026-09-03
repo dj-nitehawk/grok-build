@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use parking_lot::Mutex;
-use tokio::sync::Semaphore;
-use xai_grok_foreign_sessions::{
+use crate::foreign_sessions_api::{
     EnabledForeignSessionSources, ForeignSessionSummary, ForeignSessionTool, RecentForeignSession,
 };
+use parking_lot::Mutex;
+use tokio::sync::Semaphore;
 
 use super::actions::Effect;
 use super::app_view::{ActiveView, AppView, SessionPickerEntry};
@@ -520,7 +520,7 @@ mod tests {
     use std::cell::RefCell;
     use std::time::{Duration, UNIX_EPOCH};
 
-    use xai_grok_foreign_sessions::ForeignSessionSource;
+    use crate::foreign_sessions_api::ForeignSessionSource;
 
     use super::*;
 

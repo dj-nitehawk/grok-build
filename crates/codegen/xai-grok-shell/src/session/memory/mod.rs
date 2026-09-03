@@ -1,16 +1,37 @@
 //! Memory system shim.
 //!
-//! The memory "core engine" now lives in the standalone `xai-grok-memory` crate.
-//! This module re-exports that crate's public API under the historical `crate::session::memory::*` paths.
+//! When feature `memory` is on, re-exports the standalone `xai-grok-memory`
+//! crate under historical `crate::session::memory::*` paths.
 //!
-//! Only `hooks` stays here: it is session glue (depends on `crate::sampling` and `crate::session::helpers::session_compact`).
+//! When off (fork slim default), [`disabled`] provides type-stable no-ops so
+//! session wiring still compiles without linking product memory / sqlite-vec.
+//!
+//! Only `hooks` stays here always: session glue (depends on sampling /
+//! session_compact) and is not part of the relocatable core engine.
 
 pub mod hooks;
 
+#[cfg(feature = "memory")]
 pub use xai_grok_memory::{
-    EndpointScopedCredentials, MemoryBackendImpl, MemoryBackendParams, MemoryIndex, MemoryScope,
-    MemorySearchSource, MemoryStorage, V2ManifestBudget, V2MemoryAccessPolicy, V2MemoryScope,
-    archive, backend, chunker, dream, dream_lock, embed_missing_chunks, embedding, index,
+    EndpointScopedCredentials, MemoryBackendImpl, MemoryBackendParams, MemoryIndex,
+    MemoryObservationSink, MemoryRetrievalMode, MemoryScope, MemorySearchErrorClass,
+    MemorySearchObservation, MemorySearchOutcome, MemorySearchSource, MemoryStorage,
+    MemoryWatcherSyncObservation, V2ManifestBudget, V2MemoryAccessPolicy, V2MemoryScope,
+    archive, backend, chunker, dream, dream_lock, embed_missing_chunks, embedding, flush, index,
+    init_sqlite_vec, mmr, noop_memory_observation_sink, query_expansion, regenerate_scope_manifest,
+    schema, search, storage, text_utils, v2, watcher,
+};
+
+#[cfg(not(feature = "memory"))]
+mod disabled;
+
+#[cfg(not(feature = "memory"))]
+pub use disabled::{
+    EndpointScopedCredentials, MemoryBackendImpl, MemoryBackendParams, MemoryIndex,
+    MemoryObservationSink, MemoryRetrievalMode, MemoryScope, MemorySearchErrorClass,
+    MemorySearchObservation, MemorySearchOutcome, MemorySearchSource, MemoryStorage,
+    MemoryWatcherSyncObservation, V2ManifestBudget, V2MemoryAccessPolicy, V2MemoryScope,
+    archive, backend, chunker, dream, dream_lock, embed_missing_chunks, embedding, flush, index,
     init_sqlite_vec, mmr, noop_memory_observation_sink, query_expansion, regenerate_scope_manifest,
     schema, search, storage, text_utils, v2, watcher,
 };

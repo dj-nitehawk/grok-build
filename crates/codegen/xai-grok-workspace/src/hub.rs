@@ -16,11 +16,14 @@
 //!
 //! # Security considerations
 //!
-//! - **Provider direction** returns full `result.prompt_text` to the remote server.
-//!   This may contain sensitive workspace data (file contents, env vars).
-//!   Callers must ensure the server endpoint is trusted.
-//! - **Consumer direction** remote tools are merged with `kind: None` and are only visible under `CapabilityMode::All`.
-//!   They are dropped in subagent sessions with restricted capability modes.
+//! - **Provider direction** returns full `result.prompt_text` to the
+//!   remote server. This may contain sensitive workspace data (file
+//!   contents, env vars). Callers must ensure the server endpoint is
+//!   trusted.
+//! - **Consumer direction** remote tools are merged with `kind: None` and
+//!   are only visible under `CapabilityMode::All`. They are dropped in
+//!   subagent sessions with restricted capability modes.
+use crate::diag::DiagHandle;
 use crate::error::{WorkspaceError, WorkspaceResult};
 use crate::handle::WorkspaceHandle;
 use async_trait::async_trait;
@@ -32,7 +35,6 @@ use xai_computer_hub_sdk::{
     AuthProvider, CLOSE_CODE_SANDBOX_TERMINATED, ClientError, HubConnectionPool, ToolServer,
     ToolServerBuilder, ToolServerHandler,
 };
-use xai_grok_diag_server::DiagHandle;
 use xai_grok_tools::registry::types::ToolConfig;
 use xai_tool_protocol::ToolId;
 use xai_tool_runtime::{

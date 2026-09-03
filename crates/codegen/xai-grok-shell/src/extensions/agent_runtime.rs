@@ -48,7 +48,10 @@ pub trait AgentRuntime {
         &self,
         session_id: Option<&acp::SessionId>,
         cwd: &Path,
-    ) -> Option<(Arc<xai_codebase_graph::IndexManagerHandle>, bool)>;
+    ) -> Option<(
+        xai_grok_workspace::file_system::CodebaseIndexHandle,
+        bool,
+    )>;
 
     fn background_copy_context(&self) -> BackgroundCopyContext;
 

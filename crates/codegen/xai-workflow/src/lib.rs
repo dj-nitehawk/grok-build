@@ -1,4 +1,12 @@
+// Full Rhai engine (feature `engine`). Without it, `engine_stub` keeps the
+// public `WorkflowRunParams` / `run_workflow` surface so shell session modules
+// stay on stable import paths without linking rhai.
+#[cfg(feature = "engine")]
 pub mod engine;
+#[cfg(not(feature = "engine"))]
+#[path = "engine_stub.rs"]
+pub mod engine;
+
 pub mod host;
 pub mod journal;
 pub mod meta;
@@ -16,6 +24,7 @@ pub const DEFAULT_AGENT_BUDGET: u64 = 128;
 pub const MAX_AGENT_BUDGET: u64 = 1_024;
 pub const MAX_HOST_CALLS: u64 = 10_000;
 
+#[cfg(feature = "engine")]
 pub(crate) fn with_rhai_hint(msg: String) -> String {
     let hint = if msg.contains("Expression exceeds maximum complexity") {
         "a single expression nests too deep — usually one long chained `+` string \

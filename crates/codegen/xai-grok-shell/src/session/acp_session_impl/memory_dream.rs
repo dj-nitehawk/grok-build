@@ -513,7 +513,7 @@ impl SessionActor {
         trigger: &str,
         snapshot: Option<MemoryFlushSnapshot>,
     ) -> bool {
-        use xai_grok_memory::flush::*;
+        use crate::session::memory::flush::*;
 
         if !self.memory.uses_legacy_pipeline() {
             tracing::debug!(

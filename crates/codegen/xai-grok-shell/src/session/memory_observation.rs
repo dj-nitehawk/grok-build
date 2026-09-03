@@ -1,6 +1,6 @@
-use xai_grok_memory::{
+use crate::session::memory::{
     MemoryObservationSink, MemoryRetrievalMode, MemorySearchErrorClass, MemorySearchObservation,
-    MemorySearchSource, MemoryWatcherSyncObservation,
+    MemorySearchOutcome, MemorySearchSource, MemoryWatcherSyncObservation,
 };
 use xai_grok_telemetry::memory_telemetry::{
     MemoryInjection, MemoryInjectionOutcome, MemorySearch,
@@ -55,9 +55,9 @@ impl MemoryObservationSink for TelemetryMemoryObservationSink {
                 MemoryRetrievalMode::EmbeddingFallback => TelemetryMode::EmbeddingFallback,
             },
             outcome: match observation.outcome {
-                xai_grok_memory::MemorySearchOutcome::Results => TelemetryOutcome::Results,
-                xai_grok_memory::MemorySearchOutcome::Empty => TelemetryOutcome::Empty,
-                xai_grok_memory::MemorySearchOutcome::Error => TelemetryOutcome::Error,
+                MemorySearchOutcome::Results => TelemetryOutcome::Results,
+                MemorySearchOutcome::Empty => TelemetryOutcome::Empty,
+                MemorySearchOutcome::Error => TelemetryOutcome::Error,
             },
             query_length: observation.query_length,
             keyword_count: observation.keyword_count,
