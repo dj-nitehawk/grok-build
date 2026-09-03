@@ -45,7 +45,7 @@ dashmap = { workspace = true }
 dunce = { workspace = true }
 xai-dirs = { workspace = true }
 gix = { workspace = true, features = ["status", "parallel"] }
-gix-status = { version = "0.30.0" }
+gix-status = { version = "0.33.0" }
 globset = { workspace = true }
 ignore = { workspace = true }
 libc = { workspace = true }
