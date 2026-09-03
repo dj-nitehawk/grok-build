@@ -1,12 +1,15 @@
 //! System appearance detection for automatic day/night theming.
 //!
 //! Detection chain (each step only runs when the previous returns nothing):
-//! 1. `dark-light` desktop APIs: macOS `AppleInterfaceStyle`, Linux XDG portal `org.freedesktop.appearance.color-scheme`, Windows registry
-//! 2. Explicit env stamps, `GROK_APPEARANCE` / `LC_GROK_APPEARANCE` (SSH with tmux, wrap, headless).
-//!    See [`super::env_appearance`].
-//! 3. OSC 11 terminal background query, **startup-only**; see [`detect_with_osc11_fallback`].
-//!    The result is cached so runtime `detect()` / `resolve_auto` cannot be overwritten by stale `COLORFGBG`.
-//! 4. Inherited `COLORFGBG` guess, the last resort.
+//! 1. `dark-light` desktop APIs (feature `system-theme`) — macOS
+//!    `AppleInterfaceStyle`, Linux XDG portal color-scheme, Windows registry.
+//!    Without `system-theme`, this step is skipped (no `ashpd`/`zbus` on Linux).
+//! 2. Explicit env stamps — `GROK_APPEARANCE` / `LC_GROK_APPEARANCE`
+//!    (SSH + tmux / wrap / headless). See [`super::env_appearance`].
+//! 3. OSC 11 terminal background query — **startup-only**; see
+//!    [`detect_with_osc11_fallback`]. The result is cached so runtime
+//!    `detect()` / `resolve_auto` cannot be overwritten by stale `COLORFGBG`.
+//! 4. Inherited `COLORFGBG` guess — last resort only.
 //!
 //! Detection returns `None` when every step fails.
 
@@ -85,15 +88,25 @@ fn resolve_appearance_chain(
 
 /// Desktop-session APIs only (no env, no OSC 11).
 ///
-/// Used by `grok wrap` to stamp the *local* OS theme into the child env before SSH.
-/// Must not consult env hints; those may be a previous wrap hop's snapshot.
+/// Used by `grok wrap` to stamp the *local* OS theme into the child env
+/// before SSH. Must not consult env hints; those may be a previous wrap
+/// hop's snapshot.
+///
+/// Without feature `system-theme`, returns `None` (desktop probe compiled out).
 #[must_use]
 pub fn detect_desktop() -> Option<SystemAppearance> {
-    match dark_light::detect() {
-        Ok(dark_light::Mode::Dark) => Some(SystemAppearance::Dark),
-        Ok(dark_light::Mode::Light) => Some(SystemAppearance::Light),
-        // Mode::Unspecified or Err: no system preference detected
-        _ => None,
+    #[cfg(feature = "system-theme")]
+    {
+        match dark_light::detect() {
+            Ok(dark_light::Mode::Dark) => Some(SystemAppearance::Dark),
+            Ok(dark_light::Mode::Light) => Some(SystemAppearance::Light),
+            // Mode::Unspecified or Err — no system preference detected
+            _ => None,
+        }
+    }
+    #[cfg(not(feature = "system-theme"))]
+    {
+        None
     }
 }
 
@@ -353,6 +366,21 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         assert_mock_roundtrip(None);
     }
+
+    #[test]
+    fn clear_mock_restores_real_detection() {
+        let _guard = theme_cache::test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        set_mock(Some(SystemAppearance::Dark));
+        assert_eq!(detect(), Some(SystemAppearance::Dark));
+        clear_mock();
+        // After clearing, detect() uses the real appearance chain.
+        // We can't assert a specific value since it depends on the system,
+        // but we can verify it doesn't panic.
+        let _ = detect();
+    }
+
     // -- SystemAppearanceWatcher -----------------------------------------
 
     #[tokio::test]

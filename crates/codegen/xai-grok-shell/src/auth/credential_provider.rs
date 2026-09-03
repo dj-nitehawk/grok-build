@@ -120,12 +120,12 @@ pub(crate) fn embedding_session_credentials(
     embed_base_url: &str,
     auth_manager: Option<&Arc<AuthManager>>,
     api_key_provider: Option<xai_grok_tools::types::SharedApiKeyProvider>,
-) -> xai_grok_memory::EndpointScopedCredentials {
+) -> crate::session::memory::EndpointScopedCredentials {
     let auth_credentials = auth_manager.map(|am| {
         Arc::new(ShellAuthCredentialProvider::new(am.clone(), None, None))
             as Arc<dyn AuthCredentialProvider>
     });
-    xai_grok_memory::EndpointScopedCredentials::for_endpoint(
+    crate::session::memory::EndpointScopedCredentials::for_endpoint(
         embed_base_url,
         crate::util::is_xai_api_bearer_url,
         auth_credentials,
@@ -639,6 +639,8 @@ mod tests {
             "snapshot must reflect refreshed token for subsequent apply() calls"
         );
     }
+    /// Real scoping lives in product memory; the slim stub always returns empty.
+    #[cfg(feature = "memory")]
     #[test]
     fn embedding_session_credentials_scopes_to_first_party() {
         let _guard = EarlyInvalidationGuard::pin_to_default();

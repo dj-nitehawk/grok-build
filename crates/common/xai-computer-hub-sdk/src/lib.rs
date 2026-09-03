@@ -29,20 +29,46 @@ pub mod connection;
 pub(crate) mod connection_borrow;
 pub mod demux;
 pub mod discovery;
+#[cfg(feature = "telemetry-donate")]
 pub(crate) mod donate_pump;
 pub mod error;
 pub mod handshake;
 pub mod harness;
+#[cfg(feature = "telemetry-donate")]
 pub mod log_donate;
 #[cfg(feature = "metrics")]
 pub mod metric_donate;
+/// No-op metric donation types when feature `metrics` is off.
+#[cfg(not(feature = "metrics"))]
+mod metric_donate_stub {
+    use crate::server::ToolServer;
+
+    pub struct MetricDonationPump;
+
+    impl MetricDonationPump {
+        pub async fn drain(&self) {}
+    }
+
+    impl ToolServer {
+        pub fn metric_donation_reporter(
+            &self,
+            _service_name: impl Into<String>,
+        ) -> MetricDonationPump {
+            MetricDonationPump
+        }
+    }
+}
 pub mod metrics;
 pub mod notification;
 pub mod observability;
 pub mod pool;
 pub mod refcount;
 pub mod server;
+#[cfg(feature = "telemetry-donate")]
 pub mod trace_donate;
+/// Shape-stable no-ops when OTLP donation is compiled out.
+#[cfg(not(feature = "telemetry-donate"))]
+mod donate_stub;
 
 pub mod oidc_provider;
 
@@ -53,9 +79,14 @@ pub use harness::{
     CancelOnDrop, LocalRegistry, ModelOutputExtractor, SessionBindReport, ToolHarness,
     ToolHarnessBuilder, extractor_for,
 };
+#[cfg(feature = "telemetry-donate")]
 pub use log_donate::{DonatingLogLayer, LogDonationPump, LogDonationSender, flush_log_layer};
+#[cfg(not(feature = "telemetry-donate"))]
+pub use donate_stub::{DonatingLogLayer, LogDonationPump, LogDonationSender, flush_log_layer};
 #[cfg(feature = "metrics")]
 pub use metric_donate::MetricDonationPump;
+#[cfg(not(feature = "metrics"))]
+pub use metric_donate_stub::MetricDonationPump;
 pub use notification::HubNotification;
 pub use observability::ObservabilityBridge;
 pub use oidc_provider::{
@@ -66,7 +97,10 @@ pub use server::{
     ResolvedSessionHandlers, SessionHandlerResolver, SessionUnboundCallback, SystemNotifyAck,
     ToolServer, ToolServerBuilder, ToolServerHandler, WeakToolServer,
 };
+#[cfg(feature = "telemetry-donate")]
 pub use trace_donate::{HubDonatingReporter, TraceDonationPump};
+#[cfg(not(feature = "telemetry-donate"))]
+pub use donate_stub::{HubDonatingReporter, TraceDonationPump};
 pub use xai_computer_hub_core::{
     GROK_BOT_TOOL_DESCRIPTIONS, GROK_BOT_TOOL_IDS, grok_bot_tool_arguments_schema,
     grok_bot_tool_description, is_grok_bot_tool,

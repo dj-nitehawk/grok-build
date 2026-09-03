@@ -720,7 +720,9 @@ async fn create_injection_ready_actor(
         .replace_conversation(initial_conversation);
     actor
 }
-/// Control: proves the harness setup is sufficient for injection, so the companion test below isolates the idempotency guard.
+/// Control: proves the harness setup is sufficient for injection, so the
+/// companion test below isolates the idempotency guard.
+#[cfg(feature = "memory")]
 #[tokio::test(flavor = "current_thread")]
 async fn test_first_turn_reminder_injects_without_persisted_block() {
     let local = tokio::task::LocalSet::new();
@@ -788,8 +790,9 @@ async fn test_first_turn_reminder_skips_all_displayed_zero_results() {
         })
         .await;
 }
-/// A block persisted by an earlier `--resume` segment must suppress the re-search.
-/// A re-scored block would bust the prompt-prefix KV cache.
+/// A block persisted by an earlier `--resume` segment must suppress the
+/// re-search — a re-scored block would bust the prompt-prefix KV cache.
+#[cfg(feature = "memory")]
 #[tokio::test(flavor = "current_thread")]
 async fn test_first_turn_reminder_skips_when_block_persisted() {
     let local = tokio::task::LocalSet::new();

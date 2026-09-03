@@ -9,8 +9,8 @@ description = "TLS policy for the grok CLI: rustls backend pin, process crypto p
 # The adapters promise OS trust plus the Mozilla bundle, so an unreadable OS
 # store degrades rather than fails; both features must travel with this crate.
 reqwest = { workspace = true, features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
-# ensure_default_crypto_provider needs aws-lc-rs; unification would mask its absence.
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"] }
+# Fork slim: extra-ca is the process TLS policy crate; pin ring, not aws-lc-rs.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = { workspace = true }
 tracing = { workspace = true }
 webpki-roots = { workspace = true }
@@ -18,7 +18,7 @@ webpki-roots = { workspace = true }
 [dev-dependencies]
 base64 = { workspace = true }
 rcgen = { workspace = true }
-# ring, so the preinstalled-provider test can install a non-aws-lc-rs default.
+# Explicit ring, so the preinstalled-provider test can install a second default.
 rustls = { workspace = true, features = ["ring"] }
 tempfile = { workspace = true }
 

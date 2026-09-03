@@ -2,7 +2,9 @@
 //!
 //! The caps match values common in customer telemetry pipelines.
 
-/// Strings longer than this are truncated.
+#![cfg_attr(not(feature = "export-otel"), allow(dead_code))]
+
+/// Values longer than this are truncated…
 pub const MAX_STRING_LEN: usize = 512;
 /// Truncated strings keep this many leading chars before [`TRUNCATION_MARKER`].
 pub const TRUNCATED_PREFIX_LEN: usize = 128;

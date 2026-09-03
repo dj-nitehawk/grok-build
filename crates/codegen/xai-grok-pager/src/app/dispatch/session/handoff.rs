@@ -8,6 +8,7 @@ use crate::app::actions::Effect;
 use crate::app::agent::AgentId;
 use crate::app::agent_view::AgentView;
 use crate::app::app_view::{ActiveView, AppView};
+use crate::app::cancel_latency::TurnEnd;
 use crate::app::dispatch::ctx::{SwitchCause, switch_to_agent};
 use crate::scrollback::block::RenderBlock;
 use crate::scrollback::entry::ScrollbackEntry;
@@ -115,7 +116,7 @@ pub(in crate::app::dispatch) fn handle_handoff_ready(
     // matching finish path for ForkSession.
     let mut new_agent = build_fork_placeholder(app, new_id, parent_id, &parent_cwd, false);
     new_agent.session.finish_command();
-    new_agent.mark_turn_finished();
+    new_agent.mark_turn_finished(TurnEnd::Aborted);
     app.agents.insert(new_id, new_agent);
     {
         let agent = app

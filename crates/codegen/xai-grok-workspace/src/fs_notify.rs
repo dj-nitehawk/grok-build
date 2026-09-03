@@ -74,6 +74,7 @@ pub(crate) fn forward_to_hunk_tracker_roots(
 }
 
 /// Convert to codebase graph `FileEvent` for incremental index updates.
+#[cfg(feature = "codebase-graph")]
 pub(crate) fn fs_event_to_codebase_graph_event(
     paths: &[PathBuf],
     kind: FsEventKind,
@@ -116,7 +117,7 @@ pub(crate) fn spawn_fs_event_forwarder(
     events_tx: tokio::sync::broadcast::Sender<xai_grok_workspace_types::WorkspaceEvent>,
     cwd: PathBuf,
     cancel: tokio_util::sync::CancellationToken,
-    codebase_index: Option<std::sync::Arc<xai_codebase_graph::IndexManagerHandle>>,
+    codebase_index: Option<crate::file_system::CodebaseIndexHandle>,
 ) {
     spawn_fs_event_forwarder_roots(
         rx,
@@ -134,7 +135,7 @@ pub(crate) fn spawn_fs_event_forwarder_roots(
     events_tx: tokio::sync::broadcast::Sender<xai_grok_workspace_types::WorkspaceEvent>,
     roots: Vec<PathBuf>,
     cancel: tokio_util::sync::CancellationToken,
-    codebase_index: Option<std::sync::Arc<xai_codebase_graph::IndexManagerHandle>>,
+    codebase_index: Option<crate::file_system::CodebaseIndexHandle>,
 ) {
     tokio::spawn(async move {
         loop {
@@ -145,7 +146,10 @@ pub(crate) fn spawn_fs_event_forwarder_roots(
                     match result {
                         Ok(FsEvent::FilesChanged { ref paths, kind }) => {
                             forward_to_hunk_tracker_roots(paths, kind, &hunk_tracker, &roots);
-                            // Hidden-dir paths are forwarded to the codebase graph; its own ignore logic handles them
+                            // Forward to codebase graph for incremental
+                            // index updates (hidden-dir paths are indexed
+                            // -- the graph's own ignore logic handles them).
+                            #[cfg(feature = "codebase-graph")]
                             if let Some(ref idx) = codebase_index {
                                 let graph_event = fs_event_to_codebase_graph_event(paths, kind);
                                 if let Err(e) = idx.send_event(graph_event) {
@@ -155,6 +159,8 @@ pub(crate) fn spawn_fs_event_forwarder_roots(
                                     );
                                 }
                             }
+                            #[cfg(not(feature = "codebase-graph"))]
+                            let _ = &codebase_index;
                             // Broadcast per-path WorkspaceEvent::FsChanged.
                             let ws_kind = to_workspace_event_kind(kind);
                             for path in paths {
@@ -186,6 +192,7 @@ pub(crate) fn spawn_fs_event_forwarder_roots(
 
 const GIT_DIFF_REBUILD_THRESHOLD: usize = 500;
 
+#[cfg(feature = "codebase-graph")]
 fn parse_diff_name_status_line(
     line: &str,
     repo_root: &Path,
@@ -213,8 +220,11 @@ fn parse_diff_name_status_line(
 /// After a HEAD change, diff `ORIG_HEAD..HEAD` and send targeted events to the codebase graph.
 /// Falls back to full rebuild if too many files changed.
 ///
-/// Emits [`WorkspaceEvent::CodebaseIndexUpdated`] on `events_tx` after the index has been updated (via targeted events or a full rebuild).
-/// Skips the event if the index actor channel is closed (i.e. the actor has been dropped).
+/// Emits [`WorkspaceEvent::CodebaseIndexUpdated`] on the provided
+/// `events_tx` after the index has been updated (either via targeted
+/// events or a full rebuild). Skips the event if the index actor
+/// channel is closed (i.e. the actor has been dropped).
+#[cfg(feature = "codebase-graph")]
 pub(crate) async fn refresh_codebase_graph_after_head_change(
     idx: &xai_codebase_graph::IndexManagerHandle,
     repo_root: &Path,
@@ -281,6 +291,7 @@ pub(crate) async fn refresh_codebase_graph_after_head_change(
     }
 }
 
+#[cfg(feature = "codebase-graph")]
 pub(crate) fn ws_event_to_codebase_graph_event(
     path: &std::path::Path,
     kind: xai_grok_workspace_types::FsEventKind,
@@ -366,6 +377,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "codebase-graph")]
     #[test]
     fn codebase_graph_event_mapping() {
         use xai_codebase_graph::FileEventKind;
@@ -384,6 +396,7 @@ mod tests {
         assert_eq!(ev.kind, FileEventKind::Renamed);
     }
 
+    #[cfg(feature = "codebase-graph")]
     #[test]
     fn parse_diff_name_status_all_variants() {
         use std::path::Path;

@@ -15,6 +15,10 @@ pub mod agent;
 pub mod auth;
 pub mod builtin;
 pub use xai_grok_bundle as bundle;
+#[cfg(feature = "foreign-sessions")]
+pub mod claude_import;
+#[cfg(not(feature = "foreign-sessions"))]
+#[path = "claude_import_stub.rs"]
 pub mod claude_import;
 pub mod claude_import_state;
 pub mod cli_models;
@@ -24,7 +28,11 @@ pub mod config_docs;
 pub use xai_grok_shell_base::cpu_profile;
 pub use xai_grok_shell_base::env;
 pub mod extensions;
+#[cfg(feature = "foreign-sessions")]
 pub use xai_grok_foreign_sessions as foreign_sessions;
+#[cfg(not(feature = "foreign-sessions"))]
+#[path = "foreign_sessions_stub.rs"]
+pub mod foreign_sessions;
 pub mod heap_profile;
 pub use xai_grok_http as http;
 pub mod inspect;

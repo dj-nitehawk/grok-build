@@ -21,6 +21,7 @@ mod handle;
 pub use auth::build_voice_auth;
 pub use handle::handle_voice_event;
 pub(crate) use handle::{combine_prompt_with_voice_text, commit_interim_into_prompt};
-// Re-exported for the composition-root binary, which links the pager library rather than the voice crate
-// It intercepts the hidden `__mic-capture` helper mode (macOS captures the mic out of process) and runs at the very top of `main`
-pub use xai_grok_voice::maybe_run_capture_subprocess;
+// Hidden `__mic-capture` helper intercept (macOS out-of-process capture),
+// re-exported for the composition-root binary, which links the pager library
+// rather than the voice crate. Called at the very top of `main`.
+pub use crate::voice_rt::maybe_run_capture_subprocess;

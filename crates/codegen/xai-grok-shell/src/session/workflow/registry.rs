@@ -671,7 +671,8 @@ pub(crate) fn workflow_snapshot(
     (registry, listings)
 }
 
-#[cfg(test)]
+/// Resolve/parse paths need the Rhai engine (`workflows` feature).
+#[cfg(all(test, feature = "workflows"))]
 mod tests {
     use super::*;
 

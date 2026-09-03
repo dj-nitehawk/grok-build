@@ -1,11 +1,17 @@
 //! External OTEL schema v1: event names, attribute keys, typed records, and the per-event mapping functions.
 //! The mapping functions are wired through the `telemetry_event!` macro's `external = …` arm.
 //!
-//! `ExternalRecord` is a **closed, typed structure**: attribute keys are the [`ExternalKey`] enum, not strings.
-//! The compiler therefore enumerates every attribute that can possibly reach the wire.
-//! Three independent mechanisms must be defeated to leak a new attribute.
-//! They are this enum, the pinned [`EXTERNAL_ALLOWED_KEYS`] test, and the export-time validators in [`super::redact`].
-//! Telemetry-owner review gates this file (CODEOWNERS).
+//! `ExternalRecord` is a **closed, typed structure** — attribute keys are the
+//! [`ExternalKey`] enum, not strings — so the compiler enumerates every
+//! attribute that can possibly reach the wire. Three independent mechanisms
+//! must be defeated to leak a new attribute: this enum, the pinned
+//! [`EXTERNAL_ALLOWED_KEYS`] test, and the export-time validators in
+//! [`super::redact`]. Telemetry-owner review gates this file (CODEOWNERS).
+//!
+//! When feature `export-otel` is off, emit/redact are stubbed so some
+//! schema helpers are intentionally unused (kept for path stability).
+
+#![cfg_attr(not(feature = "export-otel"), allow(dead_code))]
 
 use crate::events;
 

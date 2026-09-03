@@ -6,14 +6,23 @@
 //! Prefers `text/markdown` in the Accept header so doc sites that serve markdown
 //! directly bypass the HTML conversion entirely.
 
+#[cfg(feature = "web-fetch")]
 mod artifact;
+#[cfg(feature = "web-fetch")]
 mod cache;
+#[cfg(feature = "web-fetch")]
+pub mod client;
+#[cfg(not(feature = "web-fetch"))]
+#[path = "client_stub.rs"]
 pub mod client;
 pub mod config;
 pub mod domain;
 pub mod error;
+#[cfg(feature = "web-fetch")]
 mod http;
+#[cfg(feature = "web-fetch")]
 pub(crate) mod overflow;
+#[cfg(feature = "web-fetch")]
 mod ssrf;
 
 pub use client::WebFetchClient;

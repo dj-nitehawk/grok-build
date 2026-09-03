@@ -6,9 +6,9 @@
 //! - Notifications emitted via `NotificationHandle` from Resources.
 //!
 //! Reminders are NOT implemented here (Phase 5).
-use crate::implementations::read_file::{
-    handle_pdf, is_pdf_file, raw_text_to_file_content, run_document_extraction,
-};
+use crate::implementations::read_file::{handle_pdf, is_pdf_file};
+#[cfg(feature = "pptx")]
+use crate::implementations::read_file::{raw_text_to_file_content, run_document_extraction};
 use crate::types::context::TruncationConfig;
 use crate::types::output::{FileContent, ReadFileOutput};
 use crate::types::requirements::{Expr, ToolRequirement};
@@ -75,26 +75,40 @@ static READ_FILE_CAPABILITIES: LazyLock<xai_tool_protocol::ToolCapabilities> =
         }),
         ..Default::default()
     });
+#[cfg(feature = "pptx")]
 const MAX_PPTX_BYTES: usize = 50 * 1024 * 1024;
+#[cfg(feature = "pptx")]
 const PPTX_PROCESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 async fn handle_pptx(
     file_bytes: Vec<u8>,
     path: &std::path::Path,
 ) -> Result<ReadFileOutput, xai_tool_runtime::ToolError> {
-    run_document_extraction(
-        file_bytes,
-        path,
-        "PPTX",
-        MAX_PPTX_BYTES,
-        PPTX_PROCESS_TIMEOUT,
-        extract_pptx_text,
-    )
-    .await
+    #[cfg(not(feature = "pptx"))]
+    {
+        let _ = file_bytes;
+        return Ok(ReadFileOutput::FileReadError(format!(
+            "PPTX support is not compiled into this build (missing feature `pptx`): {}",
+            path.display()
+        )));
+    }
+    #[cfg(feature = "pptx")]
+    {
+        run_document_extraction(
+            file_bytes,
+            path,
+            "PPTX",
+            MAX_PPTX_BYTES,
+            PPTX_PROCESS_TIMEOUT,
+            extract_pptx_text,
+        )
+        .await
+    }
 }
 /// Extract text from a PPTX file (zip + DrawingML text runs).
 ///
 /// Returns line-numbered text via the shared `raw_text_to_file_content`
 /// helper.
+#[cfg(feature = "pptx")]
 fn extract_pptx_text(file_bytes: Vec<u8>) -> Result<ReadFileOutput, String> {
     let text = crate::implementations::read_file::pptx::extract_pptx_text_from_bytes(&file_bytes)
         .map_err(|e| format!("Failed to extract text from PPTX: {e}"))?;
@@ -2145,6 +2159,9 @@ pub fn verify(req: &HttpRequest) -> Result<Claims, Error> {
             other => panic!("Expected FileReadError for corrupt PDF, got {:?}", other),
         }
     }
+    /// Size gate lives on the PDF code path; without feature `pdf` the call
+    /// fails earlier with a missing-feature message instead of a size limit.
+    #[cfg(feature = "pdf")]
     #[tokio::test]
     async fn pdf_size_gate_rejects_oversized() {
         let mut data = b"%PDF-1.4".to_vec();
@@ -2265,6 +2282,7 @@ pub fn verify(req: &HttpRequest) -> Result<Claims, Error> {
     }
     /// PDF `format="text"` returns `FileContent` yet must NOT stream (returns
     /// before the text path; PPTX shares the same early-return shape).
+    #[cfg(feature = "pdf")]
     #[tokio::test]
     async fn read_file_pdf_text_path_is_terminal_only() {
         let tmp = TempDir::new().unwrap();
@@ -2291,6 +2309,7 @@ pub fn verify(req: &HttpRequest) -> Result<Claims, Error> {
     }
     /// PDF read with the default (image) format renders to `PdfPageImages` — a
     /// single non-incremental result, so it must not stream.
+    #[cfg(feature = "pdf")]
     #[tokio::test]
     async fn read_file_pdf_image_path_is_terminal_only() {
         let tmp = TempDir::new().unwrap();
@@ -2317,6 +2336,7 @@ pub fn verify(req: &HttpRequest) -> Result<Claims, Error> {
     }
     /// Regression: a concurrent text read must not make a PDF-text read on
     /// the same `Resources` stream (streamability is call-local).
+    #[cfg(feature = "pdf")]
     #[tokio::test]
     async fn read_file_concurrent_text_and_pdf_text_do_not_cross_talk() {
         let tmp = TempDir::new().unwrap();

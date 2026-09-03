@@ -31,6 +31,7 @@ impl TelemetryCtx {
 }
 
 /// Snapshot of the ambient ctx for the external OTEL stream.
+#[cfg_attr(not(feature = "export-otel"), allow(dead_code))]
 pub(crate) struct ExternalCtxSnapshot {
     pub session_id: String,
     pub turn_number: Option<u32>,
@@ -45,8 +46,10 @@ pub fn begin_prompt_id() {
     });
 }
 
-/// Snapshot the task-local ctx (if any) for external emission.
-/// Non-blocking: a contended `prompt_index` lock yields `turn_number = None` rather than stalling the emitting task.
+/// Snapshot the task-local ctx (if any) for external emission. Non-blocking:
+/// a contended `prompt_index` lock yields `turn_number = None` rather than
+/// stalling the emitting task.
+#[cfg_attr(not(feature = "export-otel"), allow(dead_code))]
 pub(crate) fn external_ctx_snapshot() -> Option<ExternalCtxSnapshot> {
     TELEMETRY_CTX
         .try_with(|c| ExternalCtxSnapshot {

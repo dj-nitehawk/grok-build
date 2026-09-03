@@ -225,8 +225,9 @@ pub struct AuthManager {
     refresh_drain_cv: parking_lot::Condvar,
     /// Idempotency guard for `start_system_power_listener`.
     power_listener_started: std::sync::atomic::AtomicBool,
-    /// Keeps the OS power listener alive for this manager's lifetime; dropping it stops the listener.
-    /// `None` until started (or if unavailable).
+    /// Keeps the OS power listener alive for this manager's lifetime; dropping
+    /// it stops the listener. `None` until started (or if unavailable).
+    #[cfg(feature = "system-power")]
     power_listener: parking_lot::Mutex<Option<xai_system_power::SystemPowerListener>>,
     /// Per-process `manual_auth` KPI debounce, shared by all recoveries on this manager.
     /// Repeated 401s on the most-recent dead credential emit once.
@@ -473,6 +474,7 @@ impl AuthManager {
             refresh_drain_lock: parking_lot::Mutex::new(()),
             refresh_drain_cv: parking_lot::Condvar::new(),
             power_listener_started: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "system-power")]
             power_listener: parking_lot::Mutex::new(None),
             manual_auth: Default::default(),
             first_party_env_api_key_ok: std::sync::atomic::AtomicBool::new(true),

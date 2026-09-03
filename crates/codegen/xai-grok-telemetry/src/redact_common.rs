@@ -1,9 +1,14 @@
 //! Redaction helpers shared by the **internal** OTLP span pipeline and the **external** customer-collector pipeline.
 //! Those are [`crate::otel_layer`] and [`crate::external`].
 //!
-//! Both pipelines are authoritative privacy chokepoints (see the crate `AGENTS.md`).
-//! These helpers are the string-level scrubbing primitives they share.
-//! Changes here affect every byte that leaves the process on either pipeline.
+//! Both pipelines are authoritative privacy chokepoints (see the crate
+//! `AGENTS.md`); these helpers are the string-level scrubbing primitives they
+//! share. Changes here affect every byte that leaves the process on either
+//! pipeline.
+//!
+//! Unused when feature `export-otel` is off (both pipelines are stubbed).
+
+#![cfg_attr(not(feature = "export-otel"), allow(dead_code))]
 
 use std::borrow::Cow;
 
