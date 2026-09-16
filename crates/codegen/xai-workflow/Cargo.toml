@@ -5,8 +5,16 @@ version = "0.1.0"
 edition.workspace = true
 description = "Rhai-scripted dynamic workflow engine: scripts orchestrate agents through a host channel"
 
+[features]
+# Rhai interpreter + script run/validate/meta probe. Types (host, journal, outcomes)
+# always compile so shell session wiring keeps stable paths without linking rhai.
+# Fork slim: shell depends with default-features = false; feature `workflows` re-enables.
+default = ["engine"]
+engine = ["dep:rhai"]
+
 [dependencies]
-rhai = { workspace = true }
+# Optional: full Rhai engine (feature `engine`). Types-only builds omit this.
+rhai = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

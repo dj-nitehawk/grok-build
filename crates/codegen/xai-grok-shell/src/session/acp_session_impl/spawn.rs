@@ -914,6 +914,7 @@ pub(crate) async fn spawn_session_actor(
     let mut memory_v2_access = None;
     if let Some(storage) = memory_storage_for_session.clone() {
         if storage.mode().is_v2() {
+            #[cfg(feature = "memory")]
             match memory_control::initialize_v2_memory(&storage, memory_v2_legacy_carryover)
                 .instrument(memory_init_span.clone())
                 .await
@@ -931,6 +932,10 @@ pub(crate) async fn spawn_session_actor(
                     memory_storage_for_session = None;
                     configured_memory_storage = None;
                 }
+            }
+            #[cfg(not(feature = "memory"))]
+            {
+                let _ = memory_v2_legacy_carryover;
             }
         } else if let Err(error) =
             crate::session::memory_state::initialize_memory_storage(storage.clone())
@@ -1008,7 +1013,17 @@ pub(crate) async fn spawn_session_actor(
                     session_id: session_info.id.to_string(),
                 },
             ),
-            embedding_credentials: embed_credentials,
+            embedding_credentials: {
+                #[cfg(feature = "memory")]
+                {
+                    embed_credentials
+                }
+                #[cfg(not(feature = "memory"))]
+                {
+                    let _ = embed_credentials;
+                    crate::session::memory::EndpointScopedCredentials::none()
+                }
+            },
         };
         let backend = crate::session::memory::MemoryBackendImpl::from_session_params(
             storage.clone(),

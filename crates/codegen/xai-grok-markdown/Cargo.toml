@@ -18,6 +18,8 @@ linkify = { workspace = true }
 pulldown-cmark = { workspace = true }
 ratatui = { workspace = true }
 supports-color = { workspace = true }
+# Workspace syntect is default-fancy. two-face must stay syntect-fancy (not
+# syntect-onig): when both regex engines unify, syntect picks Oniguruma.
 syntect = { workspace = true }
 textwrap = { workspace = true }
 unicode-segmentation = { workspace = true }

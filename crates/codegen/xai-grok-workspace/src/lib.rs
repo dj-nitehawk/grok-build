@@ -11,6 +11,7 @@ pub mod activity;
 pub mod capability;
 pub mod channel;
 pub mod config;
+pub(crate) mod diag;
 pub mod discovery;
 pub mod envrc;
 pub mod error;
@@ -33,6 +34,7 @@ pub(crate) mod mcp_claim;
 pub(crate) mod path_virtualization;
 pub mod permission;
 pub mod project_config;
+pub mod prometheus_facade;
 pub mod publish;
 pub mod recovery;
 mod restore_fetch;
@@ -196,13 +198,13 @@ pub(crate) fn capturing_warn_logs<T>(f: impl Fn() -> T) -> (T, String) {
     let logs = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
     (value, logs)
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "prometheus-metrics"))]
 mod init_metrics_tests {
     #[test]
     fn init_metrics_is_idempotent_and_registers_baselines() {
         super::init_metrics();
         super::init_metrics();
-        let families = prometheus::gather();
+        let families = crate::prometheus_facade::gather();
         let has = |name: &str, want: &[(&str, &str)]| {
             families
                 .iter()

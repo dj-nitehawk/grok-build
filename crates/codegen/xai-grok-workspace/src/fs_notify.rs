@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use tokio::sync::broadcast;
 use tokio_util::task::AbortOnDropHandle;
+#[cfg(feature = "codebase-graph")]
 use xai_codebase_graph::{FileEvent, FileEventKind, IndexManagerHandle};
 use xai_fsnotify::{FsConfig, FsEvent, FsEventKind};
 use xai_grok_workspace_types::WorkspaceEvent;
@@ -146,8 +147,10 @@ fn confine_to_root(
     confined
 }
 
+#[cfg(feature = "codebase-graph")]
 const GIT_DIFF_REBUILD_THRESHOLD: usize = 500;
 
+#[cfg(feature = "codebase-graph")]
 fn parse_diff_name_status_line(
     line: &str,
     repo_root: &Path,
@@ -174,6 +177,7 @@ fn parse_diff_name_status_line(
 
 /// After a HEAD change, diff `ORIG_HEAD..HEAD` and send targeted graph events, or rebuild if too many files changed.
 /// Emits `CodebaseIndexUpdated` after the update; skips it if the index actor channel is closed.
+#[cfg(feature = "codebase-graph")]
 pub(crate) async fn refresh_codebase_graph_after_head_change(
     idx: &xai_codebase_graph::IndexManagerHandle,
     repo_root: &Path,
@@ -246,6 +250,7 @@ pub(crate) async fn refresh_codebase_graph_after_head_change(
 /// and the graph splits it into Removed(from) + Created(to); halves under different indexes go to
 /// each as its own Removed / Created, since an index never learns of a file outside its root from
 /// a pair sent elsewhere. A lone path is a `Renamed` its index re-indexes.
+#[cfg(feature = "codebase-graph")]
 pub(crate) fn codebase_graph_events_for_batch(
     paths: Vec<PathBuf>,
     kind: xai_grok_workspace_types::FsEventKind,

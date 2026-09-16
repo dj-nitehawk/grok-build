@@ -11,9 +11,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::voice_rt::{SharedVoiceAuth, VoiceAuthError, VoiceAuthProvider};
 use xai_grok_tools::types::SharedApiKeyProvider;
 use xai_grok_tools::types::api_key_provider::SideCallBearerError;
-use xai_grok_voice::{SharedVoiceAuth, VoiceAuthError, VoiceAuthProvider};
 
 /// Adapts the shell's `ApiKeyProvider` onto [`VoiceAuthProvider`].
 ///
@@ -50,6 +50,6 @@ pub fn build_voice_auth(auth_manager: Arc<xai_grok_login::AuthManager>) -> Share
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "voice"))]
 #[path = "auth_tests.rs"]
 mod tests;
