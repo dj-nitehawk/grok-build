@@ -1,0 +1,148 @@
+---
+type: Playbook
+title: Testing
+description: How tests are organized and how to run them per crate under fork slim defaults.
+tags: [test]
+---
+
+# Testing
+
+## Frameworks and layout
+
+- Standard Rust tests: unit tests in modules, integration tests under crate `tests/`.
+- Async tests via tokio where crates already use them.
+- Snapshot testing: `insta` (e.g. pager).
+- Support crates: `xai-grok-test-support`, `xai-test-utils`, pager PTY harness (`xai-grok-pager-pty-harness`).
+- Heavy product coverage concentrates in `xai-grok-shell`, `xai-grok-pager`, `xai-grok-tools`, `xai-grok-config`.
+
+Examples of integration surfaces:
+
+| Crate | Examples |
+| --- | --- |
+| `xai-grok-pager` | `tests/pty_e2e_*.rs`, `doctor_early_dispatch`, render/search bins |
+| `xai-grok-shell` | session load/fork, hooks e2e, subagent, vendor compat, trace replay |
+| `xai-grok-tools` | path suggestions, cgroup memory, etc. |
+| `xai-grok-sandbox` | `sandbox_smoke_test` |
+
+## Slim defaults (fork `dev`)
+
+On this fork, **package defaults are slim**. Plain `cargo test -p <crate>` enables that crate’s default features only, not a full upstream product matrix. The capability inventory (what is off, and the sync rule for each) lives in one place: [Fork Sync → Slim / strip policy](fork-sync.md#slim--strip-policy-compile-out-capabilities). Do not copy that inventory here.
+
+| Package | `default` features |
+| --- | --- |
+| `xai-grok-shell` | none (`default = []`) |
+| `xai-grok-pager` | `sandbox-enforce` |
+| `xai-grok-tools` | `serde` |
+| `xai-grok-pager-bin` | `sandbox-enforce` |
+
+Every other capability in that inventory is off unless you pass `--features` or `product-full`. Do not add a leaf back to `default` to make one test compile.
+
+`cargo test -p xai-grok-pager-bin` is uncommon; most unit coverage lives in the leaf crates above. Composition-root check/build: `cargo check -p xai-grok-pager-bin`, `cargo grok-slim-check`.
+
+### Feature-specific unit tests (gated)
+
+Capability tests that need a stripped leaf are behind `#[cfg(feature = "…")]` (or `#[cfg(all(test, feature = "…"))]` on the test module) so **default slim** `cargo test -p …` does not run them. Integration targets may use `required-features` in `Cargo.toml` (existing pattern for shell `test-support`).
+
+| Gate | Typical unit-test homes |
+| --- | --- |
+| `mermaid` | `xai-grok-pager` `app/mermaid_worker` engine/render tests |
+| `workflows` | `xai-grok-shell` `session/workflow/{manager,registry}` (+ related restore) |
+| `marketplace` | shell `plugin` install/plan tests (`mod.rs` `marketplace_tests`, `test_fixtures`) |
+| `memory` | shell `session/memory` (`hooks`, `flush`, `embedding`); `memory_toggle` / `memory::v2` session tests |
+| `pdf` | tools `read_file` PDF size-gate / render paths |
+| `image-extra` | tools/shell gif/ico/webp/tiff/bmp paths |
+| `foreign-sessions` | pager `app/foreign_sessions`, `dispatch/session/foreign`, `import_claude_modal`; shell `claude_import` and `mcp_doctor` marker-cache tests |
+
+If a default-feature failure still says “not compiled” / `Unsupported` for a gated codec, a new upstream test likely needs the same cfg. Prefer gating over re-enabling defaults.
+
+### Upstream failures vs slim fallout
+
+Do not keep a named "known red" list in OKF. Test names move and upstream fixes land; a stale row tells the next agent to ignore a real regression.
+
+When a default-feature test fails:
+
+1. Missing feature or `Unsupported` codec: gate it like the sibling tests above. That is slim fallout.
+2. Otherwise run `git log main..dev -- <path>`. No fork commits on that path: treat it as upstream. Do not "fix" it on `dev` unless a fork customization clearly re-broke it.
+3. Fork-owned behavior (customization series: prompts, handoff, purge, MCP promote, redo, TTFP, ChatGPT, sandbox settings persist, and the rest) is ours.
+
+### Full capability coverage
+
+Enable the leaf features that match the code under test:
+
+```sh
+# Examples (adjust to the surface you touched)
+cargo test -p xai-grok-pager --features mermaid
+cargo test -p xai-grok-shell --features workflows,memory
+cargo test -p xai-grok-tools --features pdf,image-extra,pptx,web-fetch
+
+# Fat composition-root build/check (not a substitute for leaf unit tests)
+cargo check -p xai-grok-pager-bin --features product-full
+```
+
+Prefer the smallest feature set that covers the change. Use `product-full` when verifying the bin’s feature graph or an install-shaped binary, not as the default unit-test entry.
+
+## Commands
+
+```sh
+# Always scope by package when possible (defaults = slim on this fork)
+cargo test -p xai-grok-config
+cargo test -p xai-grok-tools
+cargo test -p xai-grok-shell
+cargo test -p xai-grok-pager
+
+# Single test filter
+cargo test -p xai-grok-config <filter>
+
+# Avoid default full-workspace test unless intentional (slow)
+```
+
+Shell’s lib suite is large. If you hit stack overflow mid-run, raise the stack and re-run:
+
+```sh
+RUST_MIN_STACK=16777216 cargo test -p xai-grok-shell --lib
+```
+
+Clippy/check as pre-submit style validation:
+
+```sh
+cargo check -p <crate>
+cargo clippy -p <crate>
+# Slim composition root
+cargo check -p xai-grok-pager-bin --no-default-features --features sandbox-enforce
+# or: cargo grok-slim-check
+```
+
+## ChatGPT regression checks
+
+- Auth, storage races, callback HTTP and mock device exchange: `cargo test -p xai-grok-shell --lib agent::chatgpt --features marketplace,memory,foreign-sessions`.
+- Auxiliary routing: same shell command with filter `prompt_suggest`.
+- Pager quota cache, RPC timeout, and reset presentation: `cargo test -p xai-grok-pager --lib <filter> --features voice,marketplace,foreign-sessions,xai-grok-workspace/test-support`, using `provider_quota`, `chatgpt_quota`, and `credit_bar` filters.
+- Streaming reconciliation: `cargo test -p xai-grok-sampler --lib`; conversation conversion: `cargo test -p xai-grok-sampling-types --lib conversation`.
+- Manual callback browser fixture: shell test filter `manual_browser_callback_fixture` with `-- --ignored --nocapture`. It listens on loopback port 18765 for at most 180 seconds, uses dummy state/code printed by the test, and never contacts OAuth services.
+
+## Integration and data
+
+- PTY e2e tests drive the TUI through a harness; may be slower and environment-sensitive.
+- Sandbox tests depend on OS support (Landlock/Seatbelt); behavior differs by platform.
+- Config/path tests often use tempdirs; prefer existing tempfile patterns.
+- Some shell tests exercise network/auth seams with mocks (e.g. mockito in workspace deps) where already present.
+- Do not assume Docker is required for the default unit surface; follow the crate under test.
+
+## Expectations
+
+For new behavior:
+
+1. Prefer unit tests next to the module for pure logic.
+2. Add/adjust integration tests in the owning crate when cross-module contracts change (session, tools, config layers, pager flows).
+3. Keep tests hermetic: no real secrets, no production endpoints unless explicitly gated.
+4. When changing canonicalize/path logic, cover Windows-sensitive cases if the crate already tests them; always use `dunce` helpers.
+5. Run the smallest `cargo test -p …` that covers the change; state the blocker if not run.
+6. **Feature-specific tests:** gate with `#[cfg(feature = "…")]` (unit) or `required-features` on `[[test]]` (integration) so slim defaults stay free of capability-off noise. When touching a gated capability, run both default (off) and feature-on tests when practical.
+7. After monorepo sync, if a new test fails only under defaults with a missing-feature / codec message, add the same cfg as sibling tests; otherwise treat as a real regression. See [Fork Sync](fork-sync.md) verify steps.
+
+## Sources
+- `README.md`
+- `crates/codegen/xai-grok-pager-bin/Cargo.toml`
+- `crates/codegen/xai-grok-shell/Cargo.toml`
+- `crates/codegen/xai-grok-tools/Cargo.toml`
+- `.cargo/config.toml`
