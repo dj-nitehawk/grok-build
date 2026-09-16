@@ -276,7 +276,9 @@ async fn principal_key_includes_empty_user_id() {
 #[tokio::test(flavor = "current_thread")]
 async fn disabled_flag_does_not_refresh_or_spawn() {
     let _metrics = lock_metrics();
+    #[cfg(feature = "prometheus-metrics")]
     let skipped_before = refresh_count(OUTCOME_SKIPPED_DISABLED);
+    #[cfg(feature = "prometheus-metrics")]
     let ok_before = refresh_count(OUTCOME_OK);
     let hits = Arc::new(AtomicU32::new(0));
     let base = spawn_mock_idp(
@@ -300,8 +302,11 @@ async fn disabled_flag_does_not_refresh_or_spawn() {
         0,
         "disabled must not hit the IdP"
     );
-    assert_eq!(refresh_count(OUTCOME_SKIPPED_DISABLED), skipped_before + 1);
-    assert_eq!(refresh_count(OUTCOME_OK), ok_before);
+    #[cfg(feature = "prometheus-metrics")]
+    {
+        assert_eq!(refresh_count(OUTCOME_SKIPPED_DISABLED), skipped_before + 1);
+        assert_eq!(refresh_count(OUTCOME_OK), ok_before);
+    }
     match provider.current() {
         AuthCredential::Bearer { token } => assert_eq!(token, "stale-access"),
         other => panic!("expected stale Bearer, got {other:?}"),
@@ -434,10 +439,15 @@ async fn wait_auth_json_changed(
 #[tokio::test]
 async fn background_refresh_updates_snapshot_against_mock_idp() {
     let _metrics = lock_metrics();
+    #[cfg(feature = "prometheus-metrics")]
     let ok_before = refresh_count(OUTCOME_OK);
+    #[cfg(feature = "prometheus-metrics")]
     let lead_before = lead_sample_count();
+    #[cfg(feature = "prometheus-metrics")]
     let lead_sum_before = lead_sample_sum();
+    #[cfg(feature = "prometheus-metrics")]
     let duration_before = duration_sample_count();
+    #[cfg(feature = "prometheus-metrics")]
     let jitter_before = jitter_sample_count();
 
     let hits = Arc::new(AtomicU32::new(0));
@@ -493,19 +503,25 @@ async fn background_refresh_updates_snapshot_against_mock_idp() {
         "fresh-refresh"
     );
     assert!(hits.load(Ordering::SeqCst) >= 1);
-    assert!(refresh_count(OUTCOME_OK) > ok_before);
-    let new_leads = lead_sample_count() - lead_before;
-    assert_eq!(new_leads, 1);
-    let lead = (lead_sample_sum() - lead_sum_before) / new_leads as f64;
-    // The lead is the old token's remaining lifetime after a ~3s wait on a 5s token, not the new expires_in=5
-    assert!(
-        (0.0..4.5).contains(&lead),
-        "lead={lead} looks like the new TTL rather than old remaining"
-    );
-    assert!(duration_sample_count() > duration_before);
-    assert!(jitter_sample_count() >= jitter_before);
+    // Counters are no-ops unless `prometheus-metrics` is on. The snapshot
+    // assertions above are the behavior check on slim.
+    #[cfg(feature = "prometheus-metrics")]
+    {
+        assert!(refresh_count(OUTCOME_OK) > ok_before);
+        let new_leads = lead_sample_count() - lead_before;
+        assert_eq!(new_leads, 1);
+        let lead = (lead_sample_sum() - lead_sum_before) / new_leads as f64;
+        // The lead is the old token's remaining lifetime after a ~3s wait on a 5s token, not the new expires_in=5
+        assert!(
+            (0.0..4.5).contains(&lead),
+            "lead={lead} looks like the new TTL rather than old remaining"
+        );
+        assert!(duration_sample_count() > duration_before);
+        assert!(jitter_sample_count() >= jitter_before);
+    }
 }
 
+#[cfg(feature = "prometheus-metrics")]
 fn lead_cumulative_le(bound: f64) -> u64 {
     prometheus::gather()
         .iter()
@@ -517,6 +533,7 @@ fn lead_cumulative_le(bound: f64) -> u64 {
         .map_or(0, |b| b.cumulative_count())
 }
 
+#[cfg(feature = "prometheus-metrics")]
 #[test]
 fn lead_histogram_separates_negative_from_small_positive() {
     let _metrics = lock_metrics();
@@ -549,7 +566,9 @@ fn lead_histogram_separates_negative_from_small_positive() {
 #[tokio::test]
 async fn failed_refresh_retries_faster_than_min_interval_then_exhausts() {
     let _metrics = lock_metrics();
+    #[cfg(feature = "prometheus-metrics")]
     let retry_before = refresh_count(OUTCOME_FAILED_RETRY);
+    #[cfg(feature = "prometheus-metrics")]
     let exhausted_before = refresh_count(OUTCOME_FAILED_EXHAUSTED);
 
     let hits = Arc::new(AtomicU32::new(0));
@@ -621,17 +640,20 @@ async fn failed_refresh_retries_faster_than_min_interval_then_exhausts() {
         "failure retry was floored to success-path interval: {gap:?}"
     );
 
-    let exhaust_deadline = Instant::now() + Duration::from_secs(6);
-    while refresh_count(OUTCOME_FAILED_EXHAUSTED) == exhausted_before
-        && Instant::now() < exhaust_deadline
+    #[cfg(feature = "prometheus-metrics")]
     {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        let exhaust_deadline = Instant::now() + Duration::from_secs(6);
+        while refresh_count(OUTCOME_FAILED_EXHAUSTED) == exhausted_before
+            && Instant::now() < exhaust_deadline
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            refresh_count(OUTCOME_FAILED_EXHAUSTED) > exhausted_before,
+            "failed_exhausted was not recorded"
+        );
+        assert!(refresh_count(OUTCOME_FAILED_RETRY) >= retry_before);
     }
-    assert!(
-        refresh_count(OUTCOME_FAILED_EXHAUSTED) > exhausted_before,
-        "failed_exhausted was not recorded"
-    );
-    assert!(refresh_count(OUTCOME_FAILED_RETRY) >= retry_before);
     match provider.current() {
         AuthCredential::Bearer { token } => assert_eq!(token, "stale-access"),
         other => panic!("expected stale Bearer, got {other:?}"),
@@ -642,8 +664,11 @@ async fn failed_refresh_retries_faster_than_min_interval_then_exhausts() {
 #[tokio::test]
 async fn huge_expires_in_is_a_refresh_failure() {
     let _metrics = lock_metrics();
+    #[cfg(feature = "prometheus-metrics")]
     let retry_before = refresh_count(OUTCOME_FAILED_RETRY);
+    #[cfg(feature = "prometheus-metrics")]
     let exhausted_before = refresh_count(OUTCOME_FAILED_EXHAUSTED);
+    #[cfg(feature = "prometheus-metrics")]
     let ok_before = refresh_count(OUTCOME_OK);
 
     let hits = Arc::new(AtomicU32::new(0));
@@ -672,19 +697,22 @@ async fn huge_expires_in_is_a_refresh_failure() {
         "refresh never reached IdP"
     );
 
-    let fail_deadline = Instant::now() + Duration::from_secs(3);
-    while refresh_count(OUTCOME_FAILED_RETRY) == retry_before
-        && refresh_count(OUTCOME_FAILED_EXHAUSTED) == exhausted_before
-        && Instant::now() < fail_deadline
+    #[cfg(feature = "prometheus-metrics")]
     {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        let fail_deadline = Instant::now() + Duration::from_secs(3);
+        while refresh_count(OUTCOME_FAILED_RETRY) == retry_before
+            && refresh_count(OUTCOME_FAILED_EXHAUSTED) == exhausted_before
+            && Instant::now() < fail_deadline
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            refresh_count(OUTCOME_FAILED_RETRY) > retry_before
+                || refresh_count(OUTCOME_FAILED_EXHAUSTED) > exhausted_before,
+            "out-of-range expires_in was not treated as a refresh failure"
+        );
+        assert_eq!(refresh_count(OUTCOME_OK), ok_before);
     }
-    assert!(
-        refresh_count(OUTCOME_FAILED_RETRY) > retry_before
-            || refresh_count(OUTCOME_FAILED_EXHAUSTED) > exhausted_before,
-        "out-of-range expires_in was not treated as a refresh failure"
-    );
-    assert_eq!(refresh_count(OUTCOME_OK), ok_before);
     match provider.current() {
         AuthCredential::Bearer { token } => assert_eq!(token, "stale-access"),
         other => panic!("expected stale Bearer, got {other:?}"),
@@ -904,6 +932,7 @@ fn the_idp_body_in_the_error_is_one_bounded_line() {
 #[tokio::test]
 async fn invalid_grant_stops_the_loop() {
     let _metrics = lock_metrics();
+    #[cfg(feature = "prometheus-metrics")]
     let terminal_before = refresh_count(OUTCOME_FAILED_TERMINAL);
     let hits = Arc::new(AtomicU32::new(0));
     // A page of a body: the cause keeps one bounded line of it.
@@ -937,6 +966,7 @@ async fn invalid_grant_stops_the_loop() {
         at_first,
         "invalid_grant must stop the loop, not retry at RETRY_CAP"
     );
+    #[cfg(feature = "prometheus-metrics")]
     assert!(refresh_count(OUTCOME_FAILED_TERMINAL) > terminal_before);
 
     // A host that stopped retrying learns why, whether it subscribed before or after the rejection.
@@ -969,6 +999,7 @@ async fn invalid_grant_stops_the_loop() {
 #[tokio::test]
 async fn a_rejected_discovery_document_keeps_retrying() {
     let _metrics = lock_metrics();
+    #[cfg(feature = "prometheus-metrics")]
     let terminal_before = refresh_count(OUTCOME_FAILED_TERMINAL);
     let discovery_hits = Arc::new(AtomicU32::new(0));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1007,6 +1038,7 @@ async fn a_rejected_discovery_document_keeps_retrying() {
         discovery_hits.load(Ordering::SeqCst) >= 2,
         "a 401 on discovery must be retried, not treated as the token endpoint's verdict"
     );
+    #[cfg(feature = "prometheus-metrics")]
     assert_eq!(refresh_count(OUTCOME_FAILED_TERMINAL), terminal_before);
     assert!(
         tokio::time::timeout(Duration::from_millis(200), ended)
@@ -1062,7 +1094,9 @@ async fn refresh_ended_stays_pending_unless_the_rejection_is_terminal() {
 #[tokio::test]
 async fn rate_limit_429_retries_and_honors_retry_after() {
     let _metrics = lock_metrics();
+    #[cfg(feature = "prometheus-metrics")]
     let terminal_before = refresh_count(OUTCOME_FAILED_TERMINAL);
+    #[cfg(feature = "prometheus-metrics")]
     let retry_before = refresh_count(OUTCOME_FAILED_RETRY);
     let hits = Arc::new(AtomicU32::new(0));
     let base = spawn_rate_limited_idp(hits.clone(), "1").await;
@@ -1084,12 +1118,15 @@ async fn rate_limit_429_retries_and_honors_retry_after() {
         "429 must retry, not stop the loop (hits={})",
         hits.load(Ordering::SeqCst)
     );
-    assert_eq!(
-        refresh_count(OUTCOME_FAILED_TERMINAL),
-        terminal_before,
-        "429 must not be classified as terminal"
-    );
-    assert!(refresh_count(OUTCOME_FAILED_RETRY) > retry_before);
+    #[cfg(feature = "prometheus-metrics")]
+    {
+        assert_eq!(
+            refresh_count(OUTCOME_FAILED_TERMINAL),
+            terminal_before,
+            "429 must not be classified as terminal"
+        );
+        assert!(refresh_count(OUTCOME_FAILED_RETRY) > retry_before);
+    }
 }
 
 #[allow(clippy::await_holding_lock)]

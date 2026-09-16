@@ -1043,7 +1043,7 @@ pub(crate) async fn run(
     mut term_state: TerminalState,
     materialized: crate::app::session_startup::MaterializedStartup,
     bg_update_rx: Option<
-        tokio::sync::oneshot::Receiver<Option<xai_grok_update::auto_update::UpdateAvailable>>,
+        tokio::sync::oneshot::Receiver<Option<crate::update_info::UpdateAvailable>>,
     >,
     mut writer_event_rx: tokio::sync::mpsc::UnboundedReceiver<WriterEvent>,
     reader_thread: &mut ReaderThread,
@@ -1349,7 +1349,7 @@ pub(crate) async fn run(
         effective_config.as_ref().ok_or(()),
         remote_settings.as_ref(),
     );
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         claude: compat.claude.sessions,
         codex: compat.codex.sessions,
         cursor: compat.cursor.sessions,
@@ -1364,7 +1364,7 @@ pub(crate) async fn run(
                 xai_grok_shell::agent::config::EndpointsConfig::from_config_value(raw)
                     .xai_api_base_url;
             app.voice_config =
-                xai_grok_voice::VoiceConfig::from_config_table(table, Some(&endpoints_base));
+                crate::voice_rt::VoiceConfig::from_config_table(table, Some(&endpoints_base));
         }
     }
     app.voice_config.client_identifier = crate::client_identity::HEADLESS_CLIENT_TYPE.to_string();
@@ -1646,7 +1646,13 @@ pub(crate) async fn run(
     let mut acp_peek: Option<AcpClientMessage> = None;
     let (progress_tx, mut progress_rx) =
         tokio::sync::mpsc::unbounded_channel::<effects::RestoreProgressMsg>();
-    let mut voice_rx = None::<tokio::sync::mpsc::Receiver<xai_grok_voice::VoiceEvent>>;
+
+    // Voice STT pipeline starts lazily on the first successful `/voice` (see `VoiceState::ColdStart`), not at launch.
+    // That avoids background work for users who never enable voice mode.
+    // `AUDIO_SUPPORTED` reflects whether mic capture is compiled in.
+    // It is true for production CLI builds on macOS/Windows (cpal) and Linux (subprocess recorder).
+    // It is false for Bazel builds (no capture in the test sandbox).
+    let mut voice_rx = None::<tokio::sync::mpsc::Receiver<crate::voice_rt::VoiceEvent>>;
     let voice_auth_factory = connection.auth_manager.clone();
     let mut tick_interval = tick_interval;
     let mut animation_tick_at: Option<Instant> = None;
@@ -1938,7 +1944,7 @@ pub(crate) async fn run(
                 let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(32);
                 let (event_tx, event_rx) = tokio::sync::mpsc::channel(128);
                 let voice_config = app.voice_config.clone();
-                tokio::spawn(xai_grok_voice::run_voice_pipeline(
+                tokio::spawn(crate::voice_rt::run_voice_pipeline(
                     voice_config,
                     voice_auth.clone(),
                     cmd_rx,
@@ -3306,7 +3312,7 @@ async fn drain_and_process(
         }
         if let Event::Key(ke) = ev
             && app.voice_mode_enabled
-            && xai_grok_voice::AUDIO_SUPPORTED
+            && crate::voice_rt::AUDIO_SUPPORTED
             && is_voice_chord(ke)
             && voice_chord_claims_event(
                 ke.kind,

@@ -102,8 +102,23 @@ pub fn attached_image_references(
 /// SVG is intentionally **not** in this list: it is XML text with no reliable magic-byte signature.
 /// Adding it would expand the attack surface (script tags, XXE) without a corresponding image-decoder validation pass.
 /// Any future SVG support must be gated by a script attack-surface review.
-pub const ALLOWED_IMAGE_EXTENSIONS: &[&str] =
-    &["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"];
+pub const ALLOWED_IMAGE_EXTENSIONS: &[&str] = &[
+    "png",
+    "jpg",
+    "jpeg",
+    // Extra codecs follow `xai-grok-image`'s `image-extra` feature. Listing them
+    // on slim would accept an extension the decoder then rejects as "not an image".
+    #[cfg(feature = "image-extra")]
+    "gif",
+    #[cfg(feature = "image-extra")]
+    "webp",
+    #[cfg(feature = "image-extra")]
+    "bmp",
+    #[cfg(feature = "image-extra")]
+    "tiff",
+    #[cfg(feature = "image-extra")]
+    "tif",
+];
 
 /// Substrings that, if present anywhere in a canonical path, deny the load even when the parent prefix is in the allowlist.
 /// Covers macOS bundle subtrees the user did not explicitly opt in to sharing (`~/Pictures/X.photoslibrary/originals/...`).
@@ -219,7 +234,7 @@ pub struct LoadedPlaceholderImage {
     /// Ownership transfers to the caller so it can be base64-encoded or moved into a `ContentBlock::Image` without an intermediate clone.
     pub data: Vec<u8>,
     /// MIME type derived from the `image` crate's full header parser ([`image::ImageReader::with_guessed_format`] and `into_dimensions`).
-    /// Always one of `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/bmp`, `image/tiff`.
+    /// Always one of `image/png` or `image/jpeg`, plus `image/gif`, `image/webp`, `image/bmp`, `image/tiff` when feature `image-extra` is on.
     pub mime_type: String,
 }
 

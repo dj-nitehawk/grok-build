@@ -586,6 +586,18 @@ fn swap_rejected_count(reason: &str, trigger: &str) -> u64 {
         .with_label_values(&[reason, trigger])
         .get()
 }
+
+/// Metric increments are real only when `prometheus-metrics` is linked.
+/// Slim still checks the `Result` / toolset outcome.
+fn assert_rejection_counted(reason: &str, trigger: &str, before: u64) {
+    #[cfg(feature = "prometheus-metrics")]
+    assert!(
+        swap_rejected_count(reason, trigger) > before,
+        "rejection {reason}/{trigger} must be counted"
+    );
+    #[cfg(not(feature = "prometheus-metrics"))]
+    let _ = (reason, trigger, before);
+}
 /// The lazy-bind and resume-correction regression lock.
 /// A default-resolved session (stored fingerprint `None`) must accept the owner's explicit-config rebind even mid-turn with a call in flight.
 /// The owner bind is designed to land mid-turn; deferring it would serve a toolset that contradicts the config-built prompt.
@@ -648,10 +660,7 @@ async fn rebind_explicit_to_explicit_with_in_flight_call_defers_then_corrects() 
         vec!["read_a".to_owned()],
         "the existing toolset must be kept while a call is in flight"
     );
-    assert!(
-        swap_rejected_count("in_flight", "owner_rebind") > rejected_before,
-        "the deferred swap must be counted"
-    );
+    assert_rejection_counted("in_flight", "owner_rebind", rejected_before);
     tracker.tool_call_completed("busy-c1", Some("busy"), ToolOutcome::Success);
     let (rebound, outcome) = handle
         .rebind_existing_hub_session("busy", Some(cfg_b), fp_b)
@@ -710,10 +719,7 @@ async fn rebind_identical_reapply_repairs_stale_resolve() {
         "the deferred heal must keep the existing toolset"
     );
     assert!(kept.stale_resolve(), "the deferred heal keeps the marker");
-    assert!(
-        swap_rejected_count("in_flight", "owner_rebind") > rejected_before,
-        "the deferred heal must be counted"
-    );
+    assert_rejection_counted("in_flight", "owner_rebind", rejected_before);
     tracker.tool_call_completed("stale-c1", Some("stale-rebind"), ToolOutcome::Success);
     let (healed, outcome) = handle
         .rebind_existing_hub_session("stale-rebind", Some(cfg), fingerprint)
@@ -748,10 +754,7 @@ async fn update_tool_config_rejects_mid_turn_then_succeeds_at_boundary() {
         matches!(err, WorkspaceError::TurnActive(ref s) if s == "main"),
         "got {err:?}"
     );
-    assert!(
-        swap_rejected_count("turn_active", "update_tool_config") > rejected_before,
-        "the rejection must be counted"
-    );
+    assert_rejection_counted("turn_active", "update_tool_config", rejected_before);
     let session = handle.session("main").expect("main session exists");
     assert!(
         session_tool_names(&session)
@@ -792,10 +795,7 @@ async fn update_tool_config_rejects_turn_started_during_resolve() {
         matches!(err, WorkspaceError::TurnActive(ref s) if s == "main"),
         "got {err:?}"
     );
-    assert!(
-        swap_rejected_count("turn_active_late", "update_tool_config") > late_rejected_before,
-        "the post-resolve rejection must be counted distinctly"
-    );
+    assert_rejection_counted("turn_active_late", "update_tool_config", late_rejected_before);
     let session = handle.session("main").expect("main session exists");
     assert!(
         Arc::ptr_eq(&session.toolset(), &toolset_before),
@@ -871,10 +871,7 @@ async fn update_tool_config_identical_reapply_repairs_stale_resolve() {
         matches!(err, WorkspaceError::TurnActive(ref s) if s == "stale"),
         "got {err:?}"
     );
-    assert!(
-        swap_rejected_count("turn_active", "update_tool_config") > rejected_before,
-        "the rejected recovery must be counted"
-    );
+    assert_rejection_counted("turn_active", "update_tool_config", rejected_before);
     assert!(
         session.stale_resolve(),
         "the rejected recovery must keep the stale marker"
@@ -3370,6 +3367,7 @@ async fn on_hub_tools_changed_updates_snapshot() {
     };
     assert_eq!(first.id, "hub:remote_exec");
 }
+#[cfg(feature = "prometheus-metrics")]
 #[test]
 fn startup_stage_observe_records_independent_samples() {
     let recovery_before = super::STARTUP_STAGE_DURATION_SECONDS
@@ -3510,6 +3508,7 @@ async fn connect_hub_noop_when_no_config() {
         hub_ok_before
     );
 }
+#[cfg(feature = "prometheus-metrics")]
 #[test]
 fn observe_connect_hub_catalog_result_records_error_pair() {
     let catalog_ok_before = super::STARTUP_STAGE_DURATION_SECONDS

@@ -170,7 +170,7 @@ fn plugin_cta_catalog_reload_empty_candidates_resets_matched_phase() {
     let id = AgentId(0);
     {
         let cta = &mut app.agents.get_mut(&id).unwrap().plugin_cta;
-        cta.source_url_or_path = Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into());
+        cta.source_url_or_path = Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into());
         cta.candidates = vec![cta_entry("figma", "not_installed")];
         cta.phase = CtaPhase::Matched {
             plugin_relative_path: "plugins/figma".into(),
@@ -181,9 +181,9 @@ fn plugin_cta_catalog_reload_empty_candidates_resets_matched_phase() {
     }
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+            source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
             source_kind: "git".into(),
-            source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+            source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
             plugins: vec![cta_entry("figma", "installed")],
             error: None,
         }],

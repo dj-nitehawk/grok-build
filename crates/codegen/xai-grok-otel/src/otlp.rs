@@ -197,7 +197,8 @@ mod tests {
 
     #[test]
     fn blocking_otlp_client_builds_with_generated_client_identity() {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        // Fork pins rustls to ring (not aws-lc). Match extra-ca's provider.
+        let _ = rustls::crypto::ring::default_provider().install_default();
 
         use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
 

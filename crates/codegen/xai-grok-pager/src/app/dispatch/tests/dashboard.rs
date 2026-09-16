@@ -683,7 +683,7 @@ fn voice_final_appends_to_dashboard_dispatch() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "the build".into(),
         },
     );
@@ -722,7 +722,7 @@ fn voice_final_appends_to_peek_reply_when_peek_open() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "with voice".into(),
         },
     );
@@ -767,7 +767,7 @@ fn voice_final_discarded_when_peek_row_changed_after_stop() {
     app.dashboard.as_mut().unwrap().peek = Some(peek_for(DashboardRowId::TopLevel(AgentId(1))));
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "late words".into(),
         },
     );
@@ -799,11 +799,11 @@ fn voice_dashboard_dispatch_submit_tears_down_voice() {
     assert!(app.voice_interim().is_none());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "late words".into(),
         },
     );
@@ -861,12 +861,12 @@ fn voice_dashboard_peek_reply_submit_tears_down_voice() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 #[test]
 fn voice_target_bound_at_start_dispatch_vs_peek() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     use crate::views::dashboard::DashboardRowId;
@@ -947,7 +947,7 @@ fn voice_auto_stops_when_peek_row_changes() {
 /// must not bind there: starting is a no-op and an active capture auto-stops.
 #[test]
 fn voice_suppressed_while_dashboard_popup_open() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();

@@ -39,15 +39,21 @@ impl Syntect {
         if is_swift_token(ext) {
             return patched_swift(&self.syntax_set);
         }
-        self.syntax_set.find_syntax_by_extension(ext)
+        self.syntax_set
+            .find_syntax_by_extension(ext)
+            .or_else(|| fallback_syntax_for_missing_grammar(&self.syntax_set, ext))
     }
 
     /// Find a syntax definition by language token (e.g., "rust", "python").
+    /// Also accepts common markdown / GitHub / LLM fence aliases that do not
+    /// match syntect's syntax name or extensions (e.g. `csharp` → C#).
     pub fn find_syntax_by_token(&self, token: &str) -> Option<&SyntaxReference> {
         if is_swift_token(token) {
             return patched_swift(&self.syntax_set);
         }
-        self.syntax_set.find_syntax_by_token(token)
+        self.syntax_set
+            .find_syntax_by_token(resolve_syntax_token(token))
+            .or_else(|| fallback_syntax_for_missing_grammar(&self.syntax_set, token))
     }
 
     /// Create a highlighter for the given file path.
@@ -111,6 +117,48 @@ fn patched_swift(set: &SyntaxSet) -> Option<&SyntaxReference> {
             .iter()
             .any(|ext| ext.eq_ignore_ascii_case("swift"))
     })
+}
+
+/// Map common fence-info tags to the token syntect actually knows.
+///
+/// syntect's `find_syntax_by_token` only checks file extensions and the
+/// syntax **name** (case-insensitive). Sublime's C# grammar is named `"C#"`
+/// with extensions `cs`/`csx`, so the ubiquitous markdown tag `csharp` never
+/// matches without this alias. Same for F# / `fsharp`.
+fn resolve_syntax_token(token: &str) -> &str {
+    if token.eq_ignore_ascii_case("csharp") || token.eq_ignore_ascii_case("c-sharp") {
+        return "c#";
+    }
+    if token.eq_ignore_ascii_case("fsharp") || token.eq_ignore_ascii_case("f-sharp") {
+        return "f#";
+    }
+    token
+}
+
+/// Grammars that only exist in the Oniguruma syntax dump. Fancy-regex builds
+/// omit `JavaScript (Babel)` (owned `.jsx`) and PowerShell. Fall back so those
+/// fences and paths still highlight. A direct match wins, so this does nothing
+/// when the original grammar is present.
+fn fallback_syntax_for_missing_grammar<'a>(
+    set: &'a SyntaxSet,
+    token: &str,
+) -> Option<&'a SyntaxReference> {
+    if token.eq_ignore_ascii_case("jsx") {
+        return set.find_syntax_by_extension("js");
+    }
+    // PowerShell's Sublime grammar is Oniguruma-only, so fancy dumps omit it.
+    // Shell highlighting keeps bytes intact for `.ps1` fences and paths.
+    if token.eq_ignore_ascii_case("ps1")
+        || token.eq_ignore_ascii_case("psm1")
+        || token.eq_ignore_ascii_case("psd1")
+        || token.eq_ignore_ascii_case("powershell")
+        || token.eq_ignore_ascii_case("pwsh")
+    {
+        return set
+            .find_syntax_by_extension("sh")
+            .or_else(|| set.find_syntax_by_extension("bash"));
+    }
+    None
 }
 
 /// The path is the segment after the **second** colon; it is then parsed with [`Path::new`].
@@ -463,6 +511,58 @@ mod tests {
                 .any(|s| s == "comment.line.double-slash.swift"),
             "code after closing delimiter should be a comment, got {}",
             token_scopes(&tokens, "after")
+        );
+    }
+
+    #[test]
+    fn csharp_fence_aliases_resolve_to_c_sharp() {
+        let s = super::test_syntect();
+        for token in ["csharp", "CSharp", "CSHARP", "c-sharp", "cs", "c#", "C#"] {
+            let syn = s
+                .find_syntax_by_token(token)
+                .unwrap_or_else(|| panic!("expected syntax for fence token {token:?}"));
+            assert_eq!(syn.name, "C#", "token {token:?}");
+            assert!(
+                s.highlight_lines_for_fence_info(token).is_some(),
+                "highlighter for {token:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fsharp_fence_aliases_resolve_to_f_sharp() {
+        let s = super::test_syntect();
+        for token in ["fsharp", "FSharp", "f-sharp", "f#", "F#"] {
+            let syn = s
+                .find_syntax_by_token(token)
+                .unwrap_or_else(|| panic!("expected syntax for fence token {token:?}"));
+            assert_eq!(syn.name, "F#", "token {token:?}");
+            assert!(
+                s.highlight_lines_for_fence_info(token).is_some(),
+                "highlighter for {token:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn csharp_fence_highlights_with_multiple_styles() {
+        let s = super::test_syntect();
+        let lines = super::syntax_highlight_raw(
+            Some(s),
+            "csharp",
+            "public class Foo { int x = 1; /* c */ }\n",
+        )
+        .expect("csharp fence should highlight");
+        assert!(!lines.is_empty());
+        let mut colors = std::collections::BTreeSet::new();
+        for line in &lines {
+            for (style, _) in line {
+                colors.insert((style.foreground.r, style.foreground.g, style.foreground.b));
+            }
+        }
+        assert!(
+            colors.len() >= 2,
+            "expected multi-color csharp highlight, got {colors:?}"
         );
     }
 }

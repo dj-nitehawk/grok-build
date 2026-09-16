@@ -391,7 +391,7 @@ fn foreign_resume_still_detects_after_home_session_create() {
         app.only_unused_home_or_empty(),
         "unused home must still count as a cold Welcome launch"
     );
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         claude: true,
         ..Default::default()
     };
@@ -1434,7 +1434,7 @@ fn voice_on_welcome_after_exit_starts_a_session() {
         "voice after /exit must start a session, got {:?}",
         app.active_view
     );
-    if xai_grok_voice::AUDIO_SUPPORTED {
+    if crate::voice_rt::AUDIO_SUPPORTED {
         assert!(app.voice_listening(), "capture must start");
     }
 }

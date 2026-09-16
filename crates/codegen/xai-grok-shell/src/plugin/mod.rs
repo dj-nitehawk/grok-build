@@ -6,12 +6,110 @@
 //! Callers own output formatting and telemetry. Sources live in [`sources`]; every code-fetching
 //! path funnels through [`acquire`], which owns the blocking-pool (LocalSet) discipline.
 
+#[cfg(feature = "marketplace")]
 pub(crate) mod acquire;
+#[cfg(feature = "marketplace")]
 mod sources;
 
+#[cfg(feature = "marketplace")]
 pub use sources::{load_filtered_marketplace_sources, load_marketplace_sources};
 
+#[cfg(feature = "marketplace")]
 pub(crate) use acquire::marketplace_require_sha;
+
+#[cfg(not(feature = "marketplace"))]
+pub(crate) fn marketplace_require_sha() -> bool {
+    false
+}
+
+#[cfg(not(feature = "marketplace"))]
+mod marketplace_stubs {
+    use super::*;
+
+    pub fn load_marketplace_sources() -> Vec<()> {
+        Vec::new()
+    }
+    pub fn load_filtered_marketplace_sources() -> Vec<()> {
+        Vec::new()
+    }
+    pub fn install_marketplace_plugin(
+        _name: &str,
+        _qualifier: Option<&str>,
+    ) -> Result<MarketplaceInstallOutcome, MarketplaceInstallError> {
+        Err(MarketplaceInstallError::Other(
+            "marketplace support is not compiled into this build".into(),
+        ))
+    }
+    pub fn resolve_marketplace_source_name(
+        _name: &str,
+        _qualifier: Option<&str>,
+    ) -> Result<String, MarketplaceInstallError> {
+        Err(MarketplaceInstallError::Other(
+            "marketplace support is not compiled into this build".into(),
+        ))
+    }
+    pub fn resolve_qualified_source_name(
+        _qualifier: &str,
+    ) -> Result<String, MarketplaceInstallError> {
+        Err(MarketplaceInstallError::Other(
+            "marketplace support is not compiled into this build".into(),
+        ))
+    }
+    pub fn uninstall_marketplace_source_plugins(_source_identity: &str) -> Vec<String> {
+        Vec::new()
+    }
+    pub fn remove_toml_marketplace_block(_content: &str, _source_identity: &str) -> Option<String> {
+        None
+    }
+    pub fn try_remove_source_from_json_files(_source_url_or_path: &str) -> bool {
+        false
+    }
+    pub fn update_plugins(_name: Option<&str>) -> Result<Vec<RepoUpdateOutcome>, UpdateError> {
+        Err(UpdateError::NotFound {
+            name: _name.unwrap_or("*").to_string(),
+        })
+    }
+}
+
+#[cfg(not(feature = "marketplace"))]
+pub struct MarketplaceInstallOutcome {
+    pub repo_key: String,
+    pub plugin_names: Vec<String>,
+    pub warnings: Vec<String>,
+    pub source_display_name: String,
+    pub plugin_subdir: String,
+    pub source_is_git: bool,
+    pub already_installed: bool,
+    pub other_copies_note: Option<String>,
+}
+
+#[cfg(not(feature = "marketplace"))]
+#[derive(Debug)]
+pub enum MarketplaceInstallError {
+    Other(String),
+}
+
+#[cfg(not(feature = "marketplace"))]
+impl MarketplaceInstallError {
+    pub fn category(&self) -> String {
+        "unsupported".to_string()
+    }
+}
+
+#[cfg(not(feature = "marketplace"))]
+impl std::fmt::Display for MarketplaceInstallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Other(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+#[cfg(not(feature = "marketplace"))]
+impl std::error::Error for MarketplaceInstallError {}
+
+#[cfg(not(feature = "marketplace"))]
+pub use marketplace_stubs::*;
 
 use std::path::{Path, PathBuf};
 
@@ -20,12 +118,15 @@ use xai_grok_agent::plugins::git_install::{self, UpdateStatus};
 use xai_grok_agent::plugins::install_registry::{
     InstallError, InstallKind, InstallRegistry, InstalledRepo,
 };
+#[cfg(feature = "marketplace")]
 use xai_grok_plugin_marketplace::git;
+#[cfg(feature = "marketplace")]
 use xai_grok_plugin_marketplace::{
     MarketplaceEntry, MarketplaceRelativePath, MarketplaceSource, SourceKind, install_resolve,
     installer, is_official_source_url, scan_marketplace,
 };
 
+#[cfg(feature = "marketplace")]
 use acquire::resolve_source_root_for_install;
 
 /// Persist the registry under the held lock; a failed save must fail the operation (unregistered
@@ -105,6 +206,7 @@ impl std::fmt::Display for PluginInstallError {
 }
 
 /// Parse, clone/symlink, register, and enable a plugin. Does not emit telemetry.
+#[cfg(feature = "marketplace")]
 pub fn install_plugin(source: &str, cwd: &Path) -> Result<InstallOutcome, PluginInstallError> {
     let install_source = git_install::parse_install_source(source, cwd);
     let is_local = matches!(install_source, git_install::InstallSource::Local { .. });
@@ -129,6 +231,25 @@ pub fn install_plugin(source: &str, cwd: &Path) -> Result<InstallOutcome, Plugin
 
     Ok(InstallOutcome {
         repo_key,
+        plugin_names,
+        warnings: post_warnings,
+        is_local,
+    })
+}
+
+#[cfg(not(feature = "marketplace"))]
+pub fn install_plugin(source: &str, cwd: &Path) -> Result<InstallOutcome, PluginInstallError> {
+    let install_source = git_install::parse_install_source(source, cwd);
+    let is_local = matches!(install_source, git_install::InstallSource::Local { .. });
+    let mut registry = InstallRegistry::load();
+    let result = git_install::install_from_source(&install_source, &registry, false)
+        .map_err(PluginInstallError::Install)?;
+    let repo = git_install::build_installed_repo(&result, &install_source);
+    registry.insert(result.repo_key.clone(), repo);
+    save_registry(&registry).map_err(|detail| PluginInstallError::RegistrySave { detail })?;
+    let (plugin_names, post_warnings) = crate::config::post_install_plugin(&result.repo_key);
+    Ok(InstallOutcome {
+        repo_key: result.repo_key,
         plugin_names,
         warnings: post_warnings,
         is_local,
@@ -203,6 +324,7 @@ impl std::fmt::Display for UninstallError {
 
 /// Find, remove, clean up, and deregister a plugin.
 /// When `keep_data` is true, `~/.grok/plugin-data/<id>/` is preserved.
+#[cfg(feature = "marketplace")]
 pub fn uninstall_plugin(
     name: &str,
     confirm: bool,
@@ -254,6 +376,53 @@ pub fn uninstall_plugin(
     registry.remove(&repo_key);
     save_registry(&registry).map_err(|detail| UninstallError::RegistrySave { detail })?;
 
+    Ok(UninstallOutcome {
+        repo_key,
+        removed_plugins,
+    })
+}
+
+#[cfg(not(feature = "marketplace"))]
+pub fn uninstall_plugin(
+    name: &str,
+    confirm: bool,
+    keep_data: bool,
+) -> Result<UninstallOutcome, UninstallError> {
+    let mut registry = InstallRegistry::load();
+    let (repo_key, repo) = match registry.find_plugin(name) {
+        Some((k, r, _)) => (k.to_string(), r.clone()),
+        None => {
+            return Err(UninstallError::NotFound {
+                name: name.to_string(),
+            });
+        }
+    };
+    let removed_plugins: Vec<String> = repo.plugins.keys().cloned().collect();
+    if removed_plugins.len() > 1 && !confirm {
+        let others: Vec<_> = removed_plugins
+            .iter()
+            .filter(|p| p.as_str() != name)
+            .cloned()
+            .collect();
+        return Err(UninstallError::NeedsConfirm {
+            name: name.to_string(),
+            repo_key,
+            other_plugins: others,
+            total: removed_plugins.len(),
+        });
+    }
+    if let Err(e) = git_install::remove_repo_path(&repo.path) {
+        tracing::warn!("failed to remove repo path: {e}");
+    }
+    if !keep_data {
+        let scope = match xai_dirs::home_dir() {
+            Some(home) if repo.path.starts_with(&home) => PluginScope::User,
+            _ => PluginScope::ConfigPath,
+        };
+        git_install::cleanup_plugin_data(&repo, scope);
+    }
+    registry.remove(&repo_key);
+    save_registry(&registry).map_err(|detail| UninstallError::RegistrySave { detail })?;
     Ok(UninstallOutcome {
         repo_key,
         removed_plugins,
@@ -342,6 +511,7 @@ fn apply_update_to_registry(
 
 /// Update one installed plugin by name, or all when `name` is `None`. Saves
 /// the registry once at the end.
+#[cfg(feature = "marketplace")]
 pub fn update_plugins(name: Option<&str>) -> Result<Vec<RepoUpdateOutcome>, UpdateError> {
     // Registry lock across load→update loop→save.
     let _registry_lock =
@@ -447,6 +617,7 @@ pub fn update_plugins(name: Option<&str>) -> Result<Vec<RepoUpdateOutcome>, Upda
 
 /// Map a marketplace-update [`acquire::UpdateAcquireError`] to the [`InstallError`] the registry
 /// update path has always surfaced; `plugin_subdir` is kept for the scan-miss message.
+#[cfg(feature = "marketplace")]
 fn registry_update_error(e: acquire::UpdateAcquireError, plugin_subdir: String) -> InstallError {
     use acquire::UpdateAcquireError;
     match e {
@@ -563,6 +734,7 @@ pub fn classify_install_error(err: &InstallError) -> String {
     .to_string()
 }
 
+#[cfg(feature = "marketplace")]
 pub struct MarketplaceInstallOutcome {
     pub repo_key: String,
     pub plugin_names: Vec<String>,
@@ -575,6 +747,7 @@ pub struct MarketplaceInstallOutcome {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "marketplace")]
 pub enum MarketplaceInstallError {
     UnknownQualifier {
         qualifier: String,
@@ -616,6 +789,7 @@ pub enum MarketplaceInstallError {
     },
 }
 
+#[cfg(feature = "marketplace")]
 impl MarketplaceInstallError {
     /// Stable telemetry category, reusing [`classify_install_error`] for the underlying install failure.
     pub fn category(&self) -> String {
@@ -635,6 +809,7 @@ impl MarketplaceInstallError {
     }
 }
 
+#[cfg(feature = "marketplace")]
 impl std::fmt::Display for MarketplaceInstallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -734,6 +909,7 @@ impl std::fmt::Display for MarketplaceInstallError {
     }
 }
 
+#[cfg(feature = "marketplace")]
 fn bullet_list(items: &[String]) -> String {
     items
         .iter()
@@ -742,16 +918,19 @@ fn bullet_list(items: &[String]) -> String {
         .join("\n")
 }
 
+#[cfg(feature = "marketplace")]
 fn registered_source_label(source: &MarketplaceSource) -> String {
     let qualifier = install_resolve::addressable_qualifier(source);
     format!("{} ({qualifier})", source.name)
 }
 
+#[cfg(feature = "marketplace")]
 fn candidate_label(source: &MarketplaceSource, name: &str) -> String {
     let qualifier = install_resolve::addressable_qualifier(source);
     format!("{} (pin: {name}@{qualifier})", source.name)
 }
 
+#[cfg(feature = "marketplace")]
 #[derive(Debug)]
 struct InstallPlan {
     source_index: usize,
@@ -763,6 +942,7 @@ struct InstallPlan {
 
 /// Map a marketplace ref to the source and entry to install, or a typed error.
 /// Pure over `sources` and the `scan` closure so it is unit-testable.
+#[cfg(feature = "marketplace")]
 fn plan_install(
     sources: &[MarketplaceSource],
     name: &str,
@@ -891,6 +1071,7 @@ fn plan_install(
 
 /// Install a plugin by marketplace name, optionally pinned via `qualifier` (`owner/repo` or `local/<slug>`).
 /// Loads allowlist-filtered sources and delegates selection to [`plan_install`].
+#[cfg(feature = "marketplace")]
 pub fn install_marketplace_plugin(
     name: &str,
     qualifier: Option<&str>,
@@ -914,6 +1095,7 @@ pub fn install_marketplace_plugin(
     Ok(outcome)
 }
 
+#[cfg(feature = "marketplace")]
 fn install_marketplace_plugin_with(
     sources: &[MarketplaceSource],
     registry: &mut InstallRegistry,
@@ -950,6 +1132,7 @@ fn install_marketplace_plugin_with(
     Ok(outcome)
 }
 
+#[cfg(feature = "marketplace")]
 pub fn resolve_marketplace_source_name(
     name: &str,
     qualifier: Option<&str>,
@@ -960,6 +1143,7 @@ pub fn resolve_marketplace_source_name(
         .map_err(reclassify_policy_dropped_qualifier)
 }
 
+#[cfg(feature = "marketplace")]
 fn resolve_marketplace_source_name_with(
     sources: &[MarketplaceSource],
     cache_root: &Path,
@@ -979,11 +1163,13 @@ fn resolve_marketplace_source_name_with(
     Ok(source.name.clone())
 }
 
+#[cfg(feature = "marketplace")]
 pub fn resolve_qualified_source_name(qualifier: &str) -> Result<String, MarketplaceInstallError> {
     resolve_qualified_source_name_with(&load_filtered_marketplace_sources(), qualifier)
         .map_err(reclassify_policy_dropped_qualifier)
 }
 
+#[cfg(feature = "marketplace")]
 fn resolve_qualified_source_name_with(
     sources: &[MarketplaceSource],
     qualifier: &str,
@@ -1002,6 +1188,7 @@ fn resolve_qualified_source_name_with(
 
 /// A qualifier that misses the filtered sources but resolves against the unfiltered list was
 /// policy-dropped: report the policy, not "unknown" (twin of `install_source_missing_error`).
+#[cfg(feature = "marketplace")]
 fn reclassify_policy_dropped_qualifier(err: MarketplaceInstallError) -> MarketplaceInstallError {
     reclassify_policy_dropped_qualifier_with(
         err,
@@ -1011,6 +1198,7 @@ fn reclassify_policy_dropped_qualifier(err: MarketplaceInstallError) -> Marketpl
 }
 
 /// [`reclassify_policy_dropped_qualifier`] over injected inputs.
+#[cfg(feature = "marketplace")]
 fn reclassify_policy_dropped_qualifier_with(
     err: MarketplaceInstallError,
     unfiltered: &[MarketplaceSource],
@@ -1034,6 +1222,7 @@ fn reclassify_policy_dropped_qualifier_with(
     }
 }
 
+#[cfg(feature = "marketplace")]
 fn map_qualifier_resolve_error(
     qualifier: &str,
     sources: &[MarketplaceSource],
@@ -1057,6 +1246,7 @@ fn map_qualifier_resolve_error(
 
 /// Install one marketplace entry into `registry` (saved by the installer) via
 /// [`acquire::install_marketplace_entry`]; the caller auto-enables after dropping the registry lock.
+#[cfg(feature = "marketplace")]
 fn install_marketplace_entry(
     source: &MarketplaceSource,
     marketplace_root: &Path,
@@ -1132,6 +1322,7 @@ fn install_marketplace_entry(
 
 /// Remove all plugins installed from a marketplace source, returning removed repo keys; fails
 /// closed on a registry-lock timeout like every sibling writer.
+#[cfg(feature = "marketplace")]
 pub fn uninstall_marketplace_source_plugins(
     source_identity: &str,
 ) -> Result<Vec<String>, UninstallError> {
@@ -1174,6 +1365,7 @@ pub fn uninstall_marketplace_source_plugins(
 
 /// The ONE add-write core (modal + CLI): appends a `[[marketplace.sources]]` entry and the official
 /// flag in one atomic write (idempotent); callers hold the config-init flock across check→write.
+#[cfg(feature = "marketplace")]
 pub fn add_marketplace_source(
     config_path: &Path,
     name: &str,
@@ -1258,6 +1450,7 @@ pub fn add_marketplace_source(
 
 /// Remove a `[[marketplace.sources]]` entry matching `git` or `path`.
 /// Returns `Some(new_content)` on removal, `None` if not found or unparseable.
+#[cfg(feature = "marketplace")]
 pub fn remove_toml_marketplace_block(content: &str, source_identity: &str) -> Option<String> {
     let mut doc: toml_edit::DocumentMut = content.parse().ok()?;
 
@@ -1305,6 +1498,7 @@ pub fn remove_toml_marketplace_block(content: &str, source_identity: &str) -> Op
 
 /// Where [`remove_marketplace_source_from_stores`] found and removed a source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(feature = "marketplace")]
 pub enum MarketplaceSourceRemoval {
     /// Removed from `config.toml` (the official flag folded into the write).
     ConfigToml,
@@ -1317,6 +1511,7 @@ pub enum MarketplaceSourceRemoval {
 
 /// The ONE remove-write core (modal + CLI); callers hold the config-init flock across check→write.
 /// Always leaves `official_marketplace_auto_installed` set so auto-register can't re-add the source.
+#[cfg(feature = "marketplace")]
 pub fn remove_marketplace_source_from_stores(
     config_path: &Path,
     source_identity: &str,
@@ -1345,9 +1540,11 @@ pub fn remove_marketplace_source_from_stores(
     Ok(MarketplaceSourceRemoval::NotFound)
 }
 
+#[cfg(feature = "marketplace")]
 pub(crate) const OFFICIAL_MARKETPLACE_FLAG: &str = "official_marketplace_auto_installed";
 
 /// Set `[marketplace].<key> = true` in a TOML document, preserving layout.
+#[cfg(feature = "marketplace")]
 pub(crate) fn set_marketplace_bool_flag_in_toml(
     content: &str,
     key: &str,
@@ -1375,6 +1572,7 @@ pub(crate) fn set_marketplace_bool_flag_in_toml(
 }
 
 /// Set `[marketplace].<key> = true` in `config_path` via atomic replace.
+#[cfg(feature = "marketplace")]
 pub(crate) fn set_marketplace_bool_flag(config_path: &Path, key: &str) -> std::io::Result<()> {
     if let Some(parent) = config_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1384,16 +1582,19 @@ pub(crate) fn set_marketplace_bool_flag(config_path: &Path, key: &str) -> std::i
     crate::util::config::atomic_write_follow_bound(config_path, &dest, &updated)
 }
 
+#[cfg(feature = "marketplace")]
 pub(crate) fn set_official_flag_in_toml(content: &str) -> std::io::Result<String> {
     set_marketplace_bool_flag_in_toml(content, OFFICIAL_MARKETPLACE_FLAG)
 }
 
+#[cfg(feature = "marketplace")]
 pub(crate) fn set_official_marketplace_auto_installed(config_path: &Path) -> std::io::Result<()> {
     set_marketplace_bool_flag(config_path, OFFICIAL_MARKETPLACE_FLAG)
 }
 
 /// Try removing a source from `settings.json` / `known_marketplaces.json` under
 /// `~/.grok/` and `~/.claude/`. Returns `true` if removed from at least one file.
+#[cfg(feature = "marketplace")]
 pub fn try_remove_source_from_json_files(source_url_or_path: &str) -> bool {
     // Resolve user grok via user_grok_home() (None when no home resolves) and home separately
     // Removal then still runs from $GROK_HOME when no home dir exists, and never touches a cwd-relative .grok
@@ -1440,6 +1641,7 @@ pub fn try_remove_source_from_json_files(source_url_or_path: &str) -> bool {
 }
 
 /// Check whether a JSON source config matches a URL/path identity.
+#[cfg(feature = "marketplace")]
 fn json_source_matches(config: &serde_json::Value, identity: &str) -> bool {
     let source_obj = match config.get("source") {
         Some(v) if v.is_string() => config,
@@ -1470,6 +1672,7 @@ fn json_source_matches(config: &serde_json::Value, identity: &str) -> bool {
 }
 
 /// Remove a matching source entry from a JSON file. Returns `true` if removed.
+#[cfg(feature = "marketplace")]
 fn try_remove_from_json_object(
     path: &Path,
     nested_key: Option<&str>,
@@ -1524,7 +1727,7 @@ fn try_remove_from_json_object(
 }
 
 /// Shared fixtures for the `plugin` module's test splits.
-#[cfg(test)]
+#[cfg(all(test, feature = "marketplace"))]
 pub(crate) mod test_fixtures {
     use std::path::PathBuf;
 
@@ -1565,7 +1768,6 @@ pub(crate) mod test_fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::test_fixtures::{git_source, local_source, marketplace_allowlist};
     use super::*;
     use std::collections::HashMap;
 
@@ -1729,6 +1931,12 @@ mod tests {
         let status = git_install::update_repo("local", &repo, false).unwrap();
         assert!(matches!(status, UpdateStatus::LiveLocal));
     }
+}
+
+#[cfg(all(test, feature = "marketplace"))]
+mod marketplace_tests {
+    use super::test_fixtures::{git_source, local_source, marketplace_allowlist};
+    use super::*;
 
     #[test]
     fn remove_toml_selects_correct_entry() {

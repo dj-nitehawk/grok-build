@@ -132,6 +132,7 @@ pub fn is_greeting(text: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "memory")]
     #[test]
     fn test_v2_context_always_contains_both_manifests_and_refreshes() {
         let temp = tempfile::TempDir::new().unwrap();

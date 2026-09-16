@@ -217,14 +217,22 @@ mod memory_dream;
 use memory_dream::*;
 #[path = "acp_session_impl/goal_support.rs"]
 mod goal_support;
+#[cfg(feature = "memory")]
 #[path = "acp_session_impl/memory_capture.rs"]
 mod memory_capture;
+#[cfg(not(feature = "memory"))]
+#[path = "acp_session_impl/memory_v2_disabled.rs"]
+mod memory_capture;
+#[cfg(feature = "memory")]
 #[path = "acp_session_impl/memory_carryover.rs"]
 mod memory_carryover;
+#[cfg(feature = "memory")]
 #[path = "acp_session_impl/memory_control.rs"]
 mod memory_control;
+#[cfg(feature = "memory")]
 #[path = "acp_session_impl/memory_forget.rs"]
 mod memory_forget;
+#[cfg(feature = "memory")]
 #[path = "acp_session_impl/v2_memory_dream.rs"]
 mod v2_memory_dream;
 pub(crate) use goal_support::*;

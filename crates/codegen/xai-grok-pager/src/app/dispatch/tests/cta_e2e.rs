@@ -17,9 +17,9 @@ fn plugin_cta_catalog_loaded_sanitizes_components_at_ingestion() {
     });
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+            source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
             source_kind: "git".into(),
-            source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+            source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
             plugins: vec![entry],
             error: None,
         }],
@@ -67,9 +67,9 @@ fn plugin_cta_catalog_keeps_official_not_installed_only() {
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![
             xai_hooks_plugins_types::MarketplaceScanResult {
-                source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+                source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
                 source_kind: "git".into(),
-                source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+                source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
                 plugins: vec![
                     cta_entry("keep-me", "not_installed"),
                     cta_entry("already-installed", "installed"),
@@ -114,7 +114,7 @@ fn plugin_cta_catalog_keeps_official_not_installed_only() {
     );
     assert_eq!(
         cta.source_url_or_path.as_deref(),
-        Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL),
+        Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL),
         "without an override the install target stays the official source"
     );
 }
@@ -129,16 +129,16 @@ fn plugin_cta_default_prefers_url_verified_official_over_impostor() {
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![
             xai_hooks_plugins_types::MarketplaceScanResult {
-                source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+                source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
                 source_kind: "path".into(),
                 source_url_or_path: "/srv/impostor-marketplace".into(),
                 plugins: vec![cta_entry("impostor", "not_installed")],
                 error: None,
             },
             xai_hooks_plugins_types::MarketplaceScanResult {
-                source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+                source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
                 source_kind: "git".into(),
-                source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+                source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
                 plugins: vec![cta_entry("genuine", "not_installed")],
                 error: None,
             },
@@ -157,7 +157,7 @@ fn plugin_cta_default_prefers_url_verified_official_over_impostor() {
     assert_eq!(names, vec!["genuine"]);
     assert_eq!(
         cta.source_url_or_path.as_deref(),
-        Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL)
+        Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL)
     );
 }
 
@@ -169,7 +169,7 @@ fn plugin_cta_default_name_only_official_mirror_selected() {
     // No URL-verified official source in the scan: a mirror registered under the official name (e.g. an on-prem path source) still feeds the CTA.
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+            source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
             source_kind: "path".into(),
             source_url_or_path: "/srv/onprem-mirror".into(),
             plugins: vec![cta_entry("mirrored", "not_installed")],
@@ -333,14 +333,14 @@ fn plugin_cta_marketplace_override_install_targets_named_source() {
 fn plugin_cta_marketplace_override_naming_official_selects_it() {
     let mut app = test_app_with_agent();
     app.plugin_cta_marketplace =
-        Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.to_string());
+        Some(crate::marketplace_info::OFFICIAL_SOURCE_NAME.to_string());
     let id = AgentId(0);
 
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+            source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
             source_kind: "git".into(),
-            source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+            source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
             plugins: vec![cta_entry("official-plugin", "not_installed")],
             error: None,
         }],
@@ -359,7 +359,7 @@ fn plugin_cta_marketplace_override_naming_official_selects_it() {
     assert_eq!(names, vec!["official-plugin"]);
     assert_eq!(
         cta.source_url_or_path.as_deref(),
-        Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL)
+        Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL)
     );
 }
 
@@ -372,9 +372,9 @@ fn plugin_cta_marketplace_override_excludes_official_source() {
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![
             xai_hooks_plugins_types::MarketplaceScanResult {
-                source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+                source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
                 source_kind: "git".into(),
-                source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+                source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
                 plugins: vec![cta_entry("official-only", "not_installed")],
                 error: None,
             },
@@ -419,9 +419,9 @@ fn plugin_cta_marketplace_override_absent_source_hides_cta() {
     entry.keywords = vec!["figma".into()];
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+            source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
             source_kind: "git".into(),
-            source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+            source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
             plugins: vec![entry],
             error: None,
         }],
@@ -447,7 +447,7 @@ fn plugin_cta_catalog_err_preserves_cache() {
     let id = AgentId(0);
     {
         let cta = &mut app.agents.get_mut(&id).unwrap().plugin_cta;
-        cta.source_url_or_path = Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into());
+        cta.source_url_or_path = Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into());
         cta.candidates = vec![cta_entry("cached", "not_installed")];
     }
 
@@ -474,7 +474,7 @@ fn plugin_cta_catalog_reload_empty_candidates_preserves_installed_checkmark() {
     let id = AgentId(0);
     {
         let cta = &mut app.agents.get_mut(&id).unwrap().plugin_cta;
-        cta.source_url_or_path = Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into());
+        cta.source_url_or_path = Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into());
         cta.candidates = vec![cta_entry("figma", "not_installed")];
         cta.phase = CtaPhase::Installed {
             name: "figma".into(),
@@ -482,9 +482,9 @@ fn plugin_cta_catalog_reload_empty_candidates_preserves_installed_checkmark() {
     }
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+            source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
             source_kind: "git".into(),
-            source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+            source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
             plugins: vec![cta_entry("figma", "installed")],
             error: None,
         }],
@@ -536,9 +536,9 @@ fn plugin_cta_catalog_load_recomputes_match_for_typed_draft() {
     entry.keywords = vec!["zzctaplugin".into()];
     let response = xai_hooks_plugins_types::MarketplaceListResponse {
         sources: vec![xai_hooks_plugins_types::MarketplaceScanResult {
-            source_name: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_NAME.into(),
+            source_name: crate::marketplace_info::OFFICIAL_SOURCE_NAME.into(),
             source_kind: "git".into(),
-            source_url_or_path: xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into(),
+            source_url_or_path: crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into(),
             plugins: vec![entry],
             error: None,
         }],
@@ -730,7 +730,7 @@ fn plugin_cta_debounce_sets_hidden_when_feature_disabled() {
     app.plugin_cta_enabled = false;
     {
         let cta = &mut app.agents.get_mut(&id).unwrap().plugin_cta;
-        cta.source_url_or_path = Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into());
+        cta.source_url_or_path = Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into());
         cta.candidates = vec![cta_entry("figma", "not_installed")];
         cta.debounce_generation = 1;
         cta.phase = CtaPhase::Matched {
@@ -778,7 +778,7 @@ fn plugin_cta_debounce_preserves_in_flight_states() {
         {
             let cta = &mut app.agents.get_mut(&id).unwrap().plugin_cta;
             cta.source_url_or_path =
-                Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into());
+                Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into());
             cta.candidates = vec![cta_entry("figma", "not_installed")];
             cta.debounce_generation = 1;
             cta.phase = phase.clone();
@@ -1681,7 +1681,7 @@ mod cta_e2e {
         {
             let cta = &mut app.agents.get_mut(&id).unwrap().plugin_cta;
             cta.source_url_or_path =
-                Some(xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.into());
+                Some(crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.into());
             cta.candidates = vec![figma_candidate()];
             cta.debounce_generation = 1;
         }
@@ -1754,7 +1754,7 @@ mod cta_e2e {
             ] => {
                 assert_eq!(
                     source_url_or_path,
-                    xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL
+                    crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL
                 );
                 assert_eq!(plugin_relative_path, "plugins/figma");
             }
@@ -2075,7 +2075,7 @@ mod cta_e2e {
             {
                 let cta = &mut app.agents.get_mut(&id).unwrap().plugin_cta;
                 cta.source_url_or_path = source_present
-                    .then(|| xai_grok_plugin_marketplace::OFFICIAL_SOURCE_GIT_URL.to_string());
+                    .then(|| crate::marketplace_info::OFFICIAL_SOURCE_GIT_URL.to_string());
                 cta.candidates = vec![figma_candidate()];
                 cta.debounce_generation = 1;
                 cta.phase = CtaPhase::Matched {

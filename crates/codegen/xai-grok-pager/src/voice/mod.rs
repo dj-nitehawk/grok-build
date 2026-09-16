@@ -24,6 +24,7 @@ pub(crate) use handle::{
     VoiceInterimCommit, commit_interim_into_prompt, merge_voice_fragment, prompt_blank_for_voice,
     space_voice_fragment,
 };
-// Re-exported for the composition-root binary, which links the pager library rather than the voice crate
-// It intercepts the hidden `__mic-capture` helper mode (macOS captures the mic out of process) and runs at the very top of `main`
-pub use xai_grok_voice::maybe_run_capture_subprocess;
+// Hidden `__mic-capture` helper intercept (macOS out-of-process capture),
+// re-exported for the composition-root binary, which links the pager library
+// rather than the voice crate. Called at the very top of `main`.
+pub use crate::voice_rt::maybe_run_capture_subprocess;

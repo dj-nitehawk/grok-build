@@ -38,11 +38,19 @@ pub enum ImageValidateError {
 fn validate_inner(
     bytes: &[u8],
     validate_full_decode: bool,
+    enforce_allowlist: bool,
 ) -> Result<(u32, u32, ImageFormat), ImageValidateError> {
     if bytes.is_empty() {
         return Err(ImageValidateError::Empty);
     }
     let format = image::guess_format(bytes).map_err(classify_image_error)?;
+    // Reject codecs that are not compiled before touching a decoder. A missing
+    // `image` feature would otherwise look like a corrupt file, and enabling
+    // those features on this crate unconditionally puts the decoders in every
+    // slim bin via Cargo feature unification.
+    if enforce_allowlist {
+        allowlist_mime(format)?;
+    }
     if validate_full_decode {
         // The JPEG decoder (zune-jpeg) pads missing scan data instead of
         // erroring, so a truncated JPEG passes a full pixel decode; the
@@ -65,23 +73,30 @@ fn allowlist_mime(format: ImageFormat) -> Result<&'static str, ImageValidateErro
     match format {
         ImageFormat::Png => Ok("image/png"),
         ImageFormat::Jpeg => Ok("image/jpeg"),
+        #[cfg(feature = "image-extra")]
         ImageFormat::Gif => Ok("image/gif"),
+        #[cfg(feature = "image-extra")]
         ImageFormat::WebP => Ok("image/webp"),
+        #[cfg(feature = "image-extra")]
         ImageFormat::Bmp => Ok("image/bmp"),
+        #[cfg(feature = "image-extra")]
         ImageFormat::Tiff => Ok("image/tiff"),
         _ => Err(ImageValidateError::WrongFormat),
     }
 }
 
-/// Validate `bytes` decode as an allow-listed image
-/// (PNG/JPEG/GIF/WebP/BMP/TIFF). When `validate_full_decode` is `true`,
-/// runs a full pixel decode (catches CRC-corrupt PNGs); otherwise parses
-/// only the header.
+/// Validate `bytes` decode as an allow-listed image.
+///
+/// PNG and JPEG are always accepted. GIF, WebP, BMP, and TIFF require feature
+/// `image-extra` (slim builds reject them as [`ImageValidateError::WrongFormat`]
+/// so those decoders stay out of the product binary). When
+/// `validate_full_decode` is `true`, runs a full pixel decode (catches
+/// CRC-corrupt PNGs); otherwise parses only the header.
 pub fn validate_image_bytes_with(
     bytes: &[u8],
     validate_full_decode: bool,
 ) -> Result<(u32, u32, &'static str), ImageValidateError> {
-    let (w, h, format) = validate_inner(bytes, validate_full_decode)?;
+    let (w, h, format) = validate_inner(bytes, validate_full_decode, true)?;
     let mime = allowlist_mime(format)?;
     Ok((w, h, mime))
 }
@@ -99,7 +114,7 @@ pub fn validate_image_bytes_unrestricted(
     bytes: &[u8],
     validate_full_decode: bool,
 ) -> Result<(u32, u32, ImageFormat), ImageValidateError> {
-    validate_inner(bytes, validate_full_decode)
+    validate_inner(bytes, validate_full_decode, false)
 }
 
 /// Walk the JPEG marker structure and report whether a top-level EOI
@@ -290,11 +305,13 @@ pub fn image_structurally_complete(bytes: &[u8]) -> bool {
 }
 
 /// Decode-bomb guard: reject oversized inputs before full pixel decode.
+#[cfg(feature = "image-extra")]
 const MAX_TRANSCODE_DECODE_PIXELS: u64 = 16_000_000;
 
 /// Upscale tiny inputs so the PNG clears the backend `MIN_IMAGE_PIXELS`
 /// (512) floor; a native PNG below it is rejected, not upscaled, server-side.
 /// Matches the backend's `ICO_MIN_UPSCALE_DIMENSION`.
+#[cfg(feature = "image-extra")]
 const TRANSCODE_MIN_UPSCALE_SIDE: u32 = 128;
 
 /// Formats we re-encode as PNG before send. Engines only sample JPEG/PNG/WebP;
@@ -324,9 +341,20 @@ pub fn transcode_to_endpoint_png(bytes: &[u8]) -> Option<Result<Vec<u8>, ImageVa
     if !is_client_transcode_format(format) {
         return None;
     }
-    Some(decode_to_png(bytes, format))
+    // `None` means "already native, keep the original bytes". A codec that is
+    // not compiled must not take that path or GIF/BMP/TIFF would be sent raw.
+    #[cfg(not(feature = "image-extra"))]
+    {
+        let _ = format;
+        return Some(Err(ImageValidateError::WrongFormat));
+    }
+    #[cfg(feature = "image-extra")]
+    {
+        Some(decode_to_png(bytes, format))
+    }
 }
 
+#[cfg(feature = "image-extra")]
 fn decode_to_png(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, ImageValidateError> {
     // Probe dimensions from the header before decoding the full bitmap.
     let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes))
