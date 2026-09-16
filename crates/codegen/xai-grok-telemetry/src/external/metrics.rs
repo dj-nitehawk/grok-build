@@ -5,14 +5,18 @@
 //! its builder, and the increment-dispatch arm. Adding a metric is one row; a test
 //! pins the names, units, and attribute keys the rows produce.
 
+#[cfg(feature = "export-otel")]
 use opentelemetry::KeyValue;
+#[cfg(feature = "export-otel")]
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
 /// Default OTel buckets end at 10s; startup failures and slow first tokens land in the 10-120s range, so those samples need real buckets, not +Inf.
+#[cfg(feature = "export-otel")]
 const LATENCY_MS_BOUNDARIES: &[f64] = &[
     50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0, 120000.0,
 ];
 
+#[cfg(feature = "export-otel")]
 fn ms_histogram(meter: &Meter, name: &'static str) -> Histogram<u64> {
     meter
         .u64_histogram(name)
@@ -23,6 +27,7 @@ fn ms_histogram(meter: &Meter, name: &'static str) -> Histogram<u64> {
 
 /// `model` is the one non-enum metric attribute value: scrub it at increment time rather than trusting every call site.
 /// A collector fixture pins this by asserting on the wire payload.
+#[cfg(feature = "export-otel")]
 fn scrub(s: &str) -> String {
     crate::redact_common::redact_to_owned(s)
 }
@@ -53,13 +58,18 @@ macro_rules! metrics {
             )*
         }
 
-        $( pub(crate) const $const: &str = $wire; )*
+        $(
+            #[cfg(feature = "export-otel")]
+            pub(crate) const $const: &str = $wire;
+        )*
 
         /// Pre-created instruments; a test pins their names/units/attrs.
+        #[cfg(feature = "export-otel")]
         pub(crate) struct Instruments {
             $( $field: metrics!(@ty $kind), )*
         }
 
+        #[cfg(feature = "export-otel")]
         impl Instruments {
             pub(crate) fn new(meter: &Meter) -> Self {
                 Self {
