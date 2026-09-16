@@ -8,6 +8,8 @@ authors = ["xAI"]
 
 [features]
 default-bazel = []
+# W3C propagator + OTLP stack. Fork slim leaves this off via dependents.
+otel-context = []
 
 [dependencies]
 async-trait = { workspace = true }

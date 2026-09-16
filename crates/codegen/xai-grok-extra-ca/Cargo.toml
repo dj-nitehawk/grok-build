@@ -10,16 +10,16 @@ base64 = { workspace = true }
 # Not reqwest 0.13: blocking TLS overflows on Windows arm64 (#237643).
 # native-roots + webpki-roots must ship with this crate or a broken OS store fails client build.
 reqwest = { workspace = true, features = ["blocking", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
-# Both providers stay explicit: ensure_default_crypto_provider picks one per target and unification would mask either's absence.
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+# Fork slim: extra-ca is the process TLS policy crate; pin ring, not aws-lc-rs.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = { workspace = true }
 tracing = { workspace = true }
 webpki-roots = { workspace = true }
 
 [dev-dependencies]
 rcgen = { workspace = true }
-# Carries the workspace rustls feature set into the test build.
-rustls = { workspace = true }
+# Explicit ring, so the preinstalled-provider test can install a second default.
+rustls = { workspace = true, features = ["ring"] }
 tempfile = { workspace = true }
 
 [lints]
