@@ -8,14 +8,17 @@ authors = ["xAI"]
 
 [features]
 default-bazel = []
+# OTLP exporter + resource config. W3C traceparent minting stays compiled without
+# this feature (non-exporting tracer). Fork slim leaves export off.
+otel-context = ["dep:opentelemetry-http", "dep:opentelemetry-otlp"]
 
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
 http = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-http = { workspace = true }
-opentelemetry-otlp = { workspace = true }
+opentelemetry-http = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }

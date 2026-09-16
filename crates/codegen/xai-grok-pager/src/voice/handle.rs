@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use xai_grok_voice::{TaggedVoiceEvent, VoiceEvent};
+use crate::voice_rt::{TaggedVoiceEvent, VoiceEvent};
 
 use crate::app::app_view::{AppView, VoiceTarget};
 use crate::views::prompt_widget::PromptWidget;

@@ -207,7 +207,10 @@ impl MemoryFlushResponse {
 }
 
 /// Largest note `x.ai/memory/forget` will hash and delete, for both v2 and legacy stores.
+#[cfg(feature = "memory")]
 pub const MEMORY_FORGET_MAX_FILE_BYTES: u64 = xai_grok_memory::MAX_FORGET_FILE_BYTES;
+#[cfg(not(feature = "memory"))]
+pub const MEMORY_FORGET_MAX_FILE_BYTES: u64 = 256 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -10,11 +10,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use arc_swap::ArcSwap;
-use chrono::{DateTime, Utc};
-use prometheus::{
+use crate::prometheus_facade::{
     Histogram, IntCounterVec, exponential_buckets, register_histogram, register_int_counter_vec,
 };
+use arc_swap::ArcSwap;
+use chrono::{DateTime, Utc};
 use rand::Rng;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;

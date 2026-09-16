@@ -2,7 +2,7 @@
 //! submit, Esc, a new press, and navigation do to an outstanding clip.
 
 use super::*;
-use xai_grok_voice::{VoiceCommand, VoiceEvent, VoiceRoute};
+use crate::voice_rt::{VoiceCommand, VoiceEvent, VoiceRoute};
 
 use super::super::voice::TRANSCRIBING_TOAST;
 use crate::voice::{TRANSCRIPTION_TIMED_OUT_KEPT_TOAST, TRANSCRIPTION_TIMED_OUT_TOAST};
@@ -327,7 +327,7 @@ fn clip_error_commits_the_shown_partial_before_the_reset() {
 /// state, does not move while it stays blocking, and is cleared when the final lands.
 #[test]
 fn outstanding_clip_is_given_up_on_after_the_deadline() {
-    let limit = xai_grok_voice::FINAL_TIMEOUT + std::time::Duration::from_secs(15);
+    let limit = crate::voice_rt::FINAL_TIMEOUT + std::time::Duration::from_secs(15);
     for (interim_text, expected_toast) in [
         (Some("kept words"), TRANSCRIPTION_TIMED_OUT_KEPT_TOAST),
         (None, TRANSCRIPTION_TIMED_OUT_TOAST),
@@ -540,7 +540,7 @@ fn press_while_a_clip_is_outstanding_is_refused_with_a_toast() {
 /// starts a new recording.
 #[test]
 fn press_after_a_streaming_or_unclassified_stop_starts_a_new_recording() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     for waiting in [
@@ -588,7 +588,7 @@ fn capture_cancelled_ends_only_an_unclassified_stop() {
 
 #[test]
 fn session_ids_gate_events_and_reset_aborts() {
-    use xai_grok_voice::TaggedVoiceEvent;
+    use crate::voice_rt::TaggedVoiceEvent;
     let (mut app, mut rx) = voice_app();
 
     app.voice_begin_recording(agent0(), false);

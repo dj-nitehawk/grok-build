@@ -35,7 +35,7 @@ fn handshake_succeeds_against_ca_loaded_from_ssl_cert_file() {
     );
 
     let server_config = rustls::ServerConfig::builder_with_provider(
-        rustls::crypto::aws_lc_rs::default_provider().into(),
+        rustls::crypto::ring::default_provider().into(),
     )
     .with_safe_default_protocol_versions()
     .expect("protocol versions")

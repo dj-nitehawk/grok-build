@@ -9,7 +9,7 @@ use super::*;
 fn voice_slash_submit_starts_recording_in_plan_mode() {
     use crate::app::app_view::InputOutcome;
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -72,7 +72,7 @@ fn voice_final_appends_to_prompt_with_single_space() {
     p.set_cursor(5);
     let redraw = crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "world".into(),
         },
     );
@@ -90,7 +90,7 @@ fn voice_final_inserts_at_mid_text_cursor() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("partial".into()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
     let p = &mut app.agents.get_mut(&id).unwrap().prompt;
     p.set_text("hello world");
@@ -98,7 +98,7 @@ fn voice_final_inserts_at_mid_text_cursor() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "again".into(),
         },
     );
@@ -128,7 +128,7 @@ fn voice_final_inserts_at_start_of_text() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "hello".into(),
         },
     );
@@ -158,7 +158,7 @@ fn voice_final_inserts_between_words_with_spacing() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "there".into(),
         },
     );
@@ -185,7 +185,7 @@ fn voice_final_inserts_after_existing_space() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "there".into(),
         },
     );
@@ -215,7 +215,7 @@ fn voice_final_replaces_select_all_without_leading_space() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "new text".into(),
         },
     );
@@ -247,7 +247,7 @@ fn voice_final_replaces_mid_word_selection_with_spacing() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "there".into(),
         },
     );
@@ -275,7 +275,7 @@ fn voice_final_no_selection_mid_cursor_insert_unchanged() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "there".into(),
         },
     );
@@ -295,7 +295,7 @@ fn voice_final_into_empty_prompt_has_no_leading_space() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "hi there".into(),
         },
     );
@@ -318,7 +318,7 @@ fn voice_final_replaces_whitespace_only_draft() {
     p.set_cursor(0);
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal { text: "hi".into() },
+        crate::voice_rt::VoiceEvent::UtteranceFinal { text: "hi".into() },
     );
     let p = &app.agents.get(&id).unwrap().prompt;
     assert_eq!(p.text(), "hi");
@@ -339,7 +339,7 @@ fn voice_final_preserves_trailing_newline() {
     p.set_cursor("line one\n".len()); // Cursor at end after newline
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "line two".into(),
         },
     );
@@ -354,7 +354,7 @@ fn voice_final_preserves_trailing_newline() {
 /// A recording from `/voice` or a Ctrl+Space toggle is left running; its release isn't ours.
 #[test]
 fn voice_ctrl_space_release_leaves_toggle_recording_running() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -384,7 +384,7 @@ fn voice_ctrl_space_release_leaves_toggle_recording_running() {
 /// The keybinding bypasses the slash registry, so this dispatcher is the enforcement point.
 #[test]
 fn voice_keybinding_on_restricted_tier_opens_upsell() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return; // The tier check runs after the AUDIO_SUPPORTED gate.
     }
     let mut app = test_app_with_agent();
@@ -408,7 +408,7 @@ fn voice_keybinding_on_restricted_tier_opens_upsell() {
 /// A paid-tier user's voice keybinding is not intercepted by the tier gate.
 #[test]
 fn voice_keybinding_on_paid_tier_not_gated() {
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -440,7 +440,7 @@ fn voice_interim_sets_then_error_clears_state() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::InterimTranscript {
+        crate::voice_rt::VoiceEvent::InterimTranscript {
             text: "partial".into(),
         },
     );
@@ -448,7 +448,7 @@ fn voice_interim_sets_then_error_clears_state() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "boom".into(),
             hint: None,
         },
@@ -479,7 +479,7 @@ fn voice_interim_preview_replaces_active_selection() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::InterimTranscript { text: "hi".into() },
+        crate::voice_rt::VoiceEvent::InterimTranscript { text: "hi".into() },
     );
 
     assert_eq!(app.voice_interim(), Some("hi"));
@@ -542,7 +542,7 @@ fn commit_interim_replaces_active_selection() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("hi".into()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
     let p = &mut app.agents.get_mut(&id).unwrap().prompt;
     p.set_text("hello world");
@@ -574,7 +574,7 @@ fn voice_error_hint_lands_in_bound_agent_scrollback() {
     };
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "no speech detected".into(),
             hint: Some("allow terminal mic access in system settings".into()),
         },
@@ -605,7 +605,7 @@ fn voice_error_hint_lands_in_bound_agent_scrollback() {
     let before = app.agents.get(&id).unwrap().scrollback.len();
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "boom".into(),
             hint: None,
         },
@@ -628,7 +628,7 @@ fn voice_error_hint_dropped_for_dashboard_dispatch() {
     let before = app.agents.get(&AgentId(0)).unwrap().scrollback.len();
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::Error {
+        crate::voice_rt::VoiceEvent::Error {
             message: "no speech detected".into(),
             hint: Some("allow terminal mic access in system settings".into()),
         },
@@ -651,7 +651,7 @@ fn voice_interim_ignored_after_stop() {
     app.voice_state = VoiceState::Idle; // Not recording, so interim is None
     let redraw = crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::InterimTranscript {
+        crate::voice_rt::VoiceEvent::InterimTranscript {
             text: "late".into(),
         },
     );
@@ -671,7 +671,7 @@ fn voice_interim_kept_on_stop_then_cleared_by_final() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("partial".into()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
 
     app.voice_stop_keeping_final();
@@ -684,7 +684,7 @@ fn voice_interim_kept_on_stop_then_cleared_by_final() {
 
     crate::voice::handle_voice_event(
         &mut app,
-        xai_grok_voice::VoiceEvent::UtteranceFinal {
+        crate::voice_rt::VoiceEvent::UtteranceFinal {
             text: "partial".into(),
         },
     );
@@ -695,7 +695,7 @@ fn voice_interim_kept_on_stop_then_cleared_by_final() {
 #[test]
 fn voice_toggle_starts_and_stops() {
     // Starting routes through the `/voice` gate, which requires compiled-in audio capture; skip on builds without a `cpal` backend
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -708,14 +708,14 @@ fn voice_toggle_starts_and_stops() {
     assert!(app.voice_listening());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttPress { .. })
+        Ok(crate::voice_rt::VoiceCommand::PttPress { .. })
     ));
 
     dispatch(Action::VoiceToggle, &mut app);
     assert!(!app.voice_listening());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 
@@ -742,7 +742,7 @@ fn voice_toggle_silent_no_op_when_flag_disabled() {
 fn voice_toggle_starts_without_voice_mode_prereq() {
     // Ctrl+Space is a direct start; it no longer requires `/voice` first
     // Skip when audio capture isn't compiled in (see sibling test).
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -758,14 +758,14 @@ fn voice_toggle_starts_without_voice_mode_prereq() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttPress { .. })
+        Ok(crate::voice_rt::VoiceCommand::PttPress { .. })
     ));
 }
 
 #[test]
 fn voice_mode_enable_starts_recording_and_stays_on() {
     // `/voice` gates on compiled-in audio capture; skip when the build has no `cpal` backend (e.g. Bazel or headless), where enabling is a no-op.
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -783,7 +783,7 @@ fn voice_mode_enable_starts_recording_and_stays_on() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttPress { .. })
+        Ok(crate::voice_rt::VoiceCommand::PttPress { .. })
     ));
 
     // `EnableVoiceMode` is start-only (not a toggle): running it again while already recording is idempotent, no stop, no second PttPress
@@ -799,7 +799,7 @@ fn voice_mode_enable_starts_recording_and_stays_on() {
 #[test]
 fn voice_mode_on_requests_lazy_pipeline_when_missing() {
     // Skip when audio capture isn't compiled in (see sibling test).
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -815,9 +815,9 @@ fn voice_mode_on_requests_lazy_pipeline_when_missing() {
 
 #[test]
 fn voice_toggle_while_spawn_pending_keeps_start_armed() {
-    // A second Ctrl+Space while the pipeline is still spawning re-affirms the queued start rather than cancelling it
-    // There's no visible recording yet to toggle off
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    // A second Ctrl+Space while the pipeline is still spawning re-affirms the queued start rather than cancelling it.
+    // There's no visible recording yet to toggle off.
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -837,10 +837,10 @@ fn voice_toggle_while_spawn_pending_keeps_start_armed() {
 
 #[test]
 fn voice_toggle_preserves_pending_ctrl_space_hold_cancel() {
-    // A Ctrl+Space quick-tap queues a hold-owned cold-start
-    // A Ctrl+Space toggle arriving before the pipeline spawns must re-affirm it without clearing hold-ownership
-    // The matching Ctrl+Space release then still cancels the tap
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    // A Ctrl+Space quick-tap queues a hold-owned cold-start.
+    // A Ctrl+Space toggle arriving before the pipeline spawns must re-affirm it without clearing hold-ownership.
+    // The matching Ctrl+Space release then still cancels the tap.
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return;
     }
     let mut app = test_app_with_agent();
@@ -885,7 +885,7 @@ fn voice_toggle_can_always_stop_even_with_flag_disabled() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 
@@ -910,7 +910,7 @@ fn voice_stop_stops_and_drops_pending_cold_start() {
     assert!(!app.voice_state.is_hold_owned());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::PttRelease)
+        Ok(crate::voice_rt::VoiceCommand::PttRelease)
     ));
 }
 
@@ -945,7 +945,7 @@ fn voice_stt_language_change_recycles_pipeline() {
         hold: false,
         target: VoiceTarget::Agent(AgentId(0)),
         partial: Partial::Shown("hola".to_string()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
 
     let effects = dispatch(Action::SetVoiceSttLanguage("es".to_string()), &mut app);
@@ -962,7 +962,7 @@ fn voice_stt_language_change_recycles_pipeline() {
     );
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::Shutdown)
+        Ok(crate::voice_rt::VoiceCommand::Shutdown)
     ));
     assert!(matches!(
         effects.as_slice(),
@@ -1070,7 +1070,7 @@ fn voice_submit_includes_interim() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("world".into()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
 
     let effects = dispatch(Action::SendPrompt("hello".into()), &mut app);
@@ -1081,7 +1081,7 @@ fn voice_submit_includes_interim() {
     assert!(!app.voice_listening());
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::Abort)
+        Ok(crate::voice_rt::VoiceCommand::Abort)
     ));
 }
 
@@ -1118,7 +1118,7 @@ fn voice_submit_interim_only() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("ghost only".into()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
 
     let effects = dispatch(Action::SendPrompt(String::new()), &mut app);
@@ -1140,7 +1140,7 @@ fn voice_submit_follow_up_keeps_chip_literal() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("dictated".into()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
 
     let effects = dispatch(Action::SubmitFollowUp("chip text".into()), &mut app);
@@ -1158,7 +1158,7 @@ fn voice_submit_follow_up_keeps_chip_literal() {
 /// cancelled start is a session that never was.
 #[test]
 fn stale_events_are_dropped_except_a_notice_and_the_stopped_sessions_final() {
-    use xai_grok_voice::{TaggedVoiceEvent, VoiceEvent};
+    use crate::voice_rt::{TaggedVoiceEvent, VoiceEvent};
     let mut app = test_app_with_agent();
     app.apply_voice_mode_enabled(true);
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);

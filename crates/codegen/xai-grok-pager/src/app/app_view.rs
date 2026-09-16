@@ -803,7 +803,7 @@ pub struct AppView {
     /// Stale completions and responses fetched under an obsolete Headless policy thus cannot clobber newer results.
     pub session_picker_list_seq: u64,
     /// Resolved compat-session cells used before checking resume-skill paths.
-    pub(crate) foreign_session_compat: xai_grok_foreign_sessions::EnabledForeignSessionSources,
+    pub(crate) foreign_session_compat: crate::foreign_sessions_api::EnabledForeignSessionSources,
     /// Monotonic picker scan sequence, bumped on every open and close.
     pub(crate) foreign_session_scan_seq: u64,
     /// Coalesces obsolete foreign scans across welcome and modal pickers.
@@ -1093,22 +1093,22 @@ pub struct AppView {
     /// Cleared on exit or when the remote flag turns off.
     pub voice_ui_active: bool,
     /// Optional `[voice]` overrides from config (`api_base`, `language`, …).
-    pub voice_config: xai_grok_voice::VoiceConfig,
+    pub voice_config: crate::voice_rt::VoiceConfig,
     /// Auth for STT (OAuth session via shell `AuthManager`, or `XAI_API_KEY`).
     /// `None` until the pipeline is first started (lazy on `/voice`).
-    pub voice_auth: Option<xai_grok_voice::SharedVoiceAuth>,
+    pub voice_auth: Option<crate::voice_rt::SharedVoiceAuth>,
     /// Commands into the voice pipeline (start/stop capture; toggle, not hold).
-    pub voice_cmd_tx: Option<tokio::sync::mpsc::Sender<xai_grok_voice::VoiceCommand>>,
+    pub voice_cmd_tx: Option<tokio::sync::mpsc::Sender<crate::voice_rt::VoiceCommand>>,
     /// The dictation state (idle / queued / recording / stopping), including the live interim transcript.
     /// One state at a time, so inconsistent combinations are unrepresentable.
     /// Production mutates it only through the `AppView::voice_*` transition methods.
     pub voice_state: VoiceState,
     /// Minted per press; the pipeline stamps events with it and [`crate::voice::handle_tagged_voice_event`] drops
     /// older ones.
-    pub voice_session: xai_grok_voice::VoiceSessionId,
+    pub voice_session: crate::voice_rt::VoiceSessionId,
     /// The session the last press superseded while it was stopping, and its target: its one trailing final is
     /// still let through (the last sentence of the previous dictation), where every other stale event is dropped.
-    pub voice_trailing_final: Option<(xai_grok_voice::VoiceSessionId, VoiceTarget)>,
+    pub voice_trailing_final: Option<(crate::voice_rt::VoiceSessionId, VoiceTarget)>,
     /// When an outstanding clip (stopped or uploading) is given up on if its final never arrives; see
     /// [`AppView::voice_expire_outstanding_clip`].
     pub voice_clip_deadline: Option<Instant>,
@@ -1611,11 +1611,11 @@ impl AppView {
             voice_mode_enabled: false,
             distribution: xai_grok_config::Distribution::current(),
             voice_ui_active: false,
-            voice_config: xai_grok_voice::VoiceConfig::default(),
+            voice_config: crate::voice_rt::VoiceConfig::default(),
             voice_auth: None,
             voice_cmd_tx: None,
             voice_state: VoiceState::Idle,
-            voice_session: xai_grok_voice::VoiceSessionId::default(),
+            voice_session: crate::voice_rt::VoiceSessionId::default(),
             voice_trailing_final: None,
             voice_clip_deadline: None,
         }
@@ -1640,7 +1640,7 @@ impl AppView {
     /// Gated on the voice gate and a build that compiled in audio capture.
     /// Free-tier upsell is separate ([`Self::is_voice_tier_restricted`]).
     pub fn voice_can_start_pipeline(&self) -> bool {
-        self.voice_mode_enabled && xai_grok_voice::AUDIO_SUPPORTED
+        self.voice_mode_enabled && crate::voice_rt::AUDIO_SUPPORTED
     }
     /// Sync voice availability into slash surfaces, cheatsheet, and settings.
     /// Mirrors `apply_session_recap_available` for `/recap`.

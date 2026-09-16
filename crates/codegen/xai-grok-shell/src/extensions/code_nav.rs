@@ -156,6 +156,8 @@ pub(crate) enum IndexStatusReason {
     NotGitRepo,
     /// `sessionId` is required but was absent or refers to an unknown session.
     SessionRequired,
+    /// This binary was built without feature `codebase-graph`.
+    NotCompiled,
 }
 
 /// Response for status query.
@@ -305,6 +307,19 @@ pub async fn handle(
             to_code_nav_ext_response(result)
         }
         "x.ai/code/status" => {
+            #[cfg(not(feature = "codebase-graph"))]
+            {
+                let _ = (agent, args);
+                let status = StatusResponse {
+                    indexed: false,
+                    eligible: false,
+                    reason: IndexStatusReason::NotCompiled,
+                    file_count: None,
+                };
+                return super::to_ext_response(Ok(status));
+            }
+            #[cfg(feature = "codebase-graph")]
+            {
             let req: StatusRequest = serde_json::from_str(args.params.get())
                 .map_err(|e| acp::Error::invalid_params().data(format!("invalid params: {e}")))?;
             let cwd = resolve_cwd(agent, req.cwd.clone(), req.session_id.as_ref())?;
@@ -352,6 +367,7 @@ pub async fn handle(
                 file_count,
             };
             super::to_ext_response(Ok(status))
+            }
         }
         _ => Err(acp::Error::method_not_found()),
     }
@@ -388,6 +404,15 @@ fn ensure_eligible_and_started(
     session_id: Option<&acp::SessionId>,
     cwd: &Path,
 ) -> Result<bool, acp::Error> {
+    #[cfg(not(feature = "codebase-graph"))]
+    {
+        let _ = (agent, session_id, cwd);
+        return Err(acp::Error::internal_error().data(
+            "codebase graph is not compiled into this build (missing feature `codebase-graph`)",
+        ));
+    }
+    #[cfg(feature = "codebase-graph")]
+    {
     if let Err(reason) = agent.code_nav_eligibility_for_request(session_id, cwd) {
         return Err(eligibility_error(reason));
     }
@@ -397,6 +422,7 @@ fn ensure_eligible_and_started(
         .map(|(_, was_new)| was_new)
         .unwrap_or(false);
     Ok(was_newly_started)
+    }
 }
 
 // ========== Helper Functions ==========

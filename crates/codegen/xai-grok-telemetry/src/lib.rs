@@ -16,12 +16,25 @@ pub mod config;
 pub mod context;
 pub mod enums;
 pub mod events;
+// External customer OTEL stream: real exporters when `export-otel`, else stub.
+#[cfg(feature = "export-otel")]
+pub mod external;
+#[cfg(not(feature = "export-otel"))]
+#[path = "external_stub.rs"]
 pub mod external;
 pub mod http;
 pub mod id;
 mod logs;
+#[cfg(feature = "export-otel")]
+pub mod otel_layer;
+#[cfg(not(feature = "export-otel"))]
+#[path = "otel_layer_stub.rs"]
 pub mod otel_layer;
 mod process;
+#[cfg(feature = "export-sentry")]
+pub mod sentry;
+#[cfg(not(feature = "export-sentry"))]
+#[path = "sentry_stub.rs"]
 pub mod sentry;
 mod session;
 mod spans;
@@ -39,6 +52,7 @@ pub use session::session_ctx::{
 };
 pub use session::{activity, session_ctx, session_end, session_metrics, subagent_spawn};
 pub use spans::{instrumentation, prompt_timing, region, span_profile, startup, turn_phases};
+#[cfg(feature = "export-otel")]
 pub(crate) use xai_grok_otel::otlp;
 pub(crate) use xai_grok_otel::redact_common;
 pub use xai_grok_otel::redact_common::redact_error_detail;

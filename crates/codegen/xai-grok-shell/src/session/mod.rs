@@ -1,6 +1,7 @@
 pub mod acp_types;
 pub mod announcement_state;
 pub mod auto_mode;
+#[cfg(feature = "memory")]
 pub mod batch_dream;
 pub mod commands;
 pub(crate) mod compaction_config;

@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use xai_grok_voice::VoiceRoute;
+use crate::voice_rt::VoiceRoute;
 
 use crate::app::agent::AgentId;
 use crate::app::app_view::AppView;
@@ -15,7 +15,7 @@ use crate::app::app_view::AppView;
 /// pipeline's own backstop plus room for the stop and drain, so a reader that died mid-upload cannot block presses
 /// for good.
 const OUTSTANDING_CLIP_LIMIT: Duration =
-    xai_grok_voice::FINAL_TIMEOUT.saturating_add(Duration::from_secs(15));
+    crate::voice_rt::FINAL_TIMEOUT.saturating_add(Duration::from_secs(15));
 
 /// Which prompt box in-flight voice dictation appends its finalized text to.
 /// Captured when recording **starts** so a trailing STT final still lands where the user was dictating.
@@ -185,7 +185,7 @@ impl AppView {
     }
 
     /// Best-effort one-shot command into the voice pipeline (no-op if it isn't up).
-    fn voice_send(&self, cmd: xai_grok_voice::VoiceCommand) {
+    fn voice_send(&self, cmd: crate::voice_rt::VoiceCommand) {
         if let Some(tx) = &self.voice_cmd_tx
             && tx.try_send(cmd).is_err()
         {
@@ -207,7 +207,7 @@ impl AppView {
             _ => None,
         };
         self.voice_session = self.voice_session.next();
-        self.voice_send(xai_grok_voice::VoiceCommand::PttPress {
+        self.voice_send(crate::voice_rt::VoiceCommand::PttPress {
             session: self.voice_session,
         });
         self.voice_state = VoiceState::Recording {
@@ -303,7 +303,7 @@ impl AppView {
         let target = *target;
         let partial = std::mem::take(partial);
         let route = *route;
-        self.voice_send(xai_grok_voice::VoiceCommand::PttRelease);
+        self.voice_send(crate::voice_rt::VoiceCommand::PttRelease);
         self.voice_state = VoiceState::Stopping {
             target,
             partial,
@@ -369,7 +369,7 @@ impl AppView {
                 | VoiceState::Stopping { .. }
                 | VoiceState::Transcribing { .. }
         ) {
-            self.voice_send(xai_grok_voice::VoiceCommand::Abort);
+            self.voice_send(crate::voice_rt::VoiceCommand::Abort);
         }
         self.voice_state = VoiceState::Idle;
         self.voice_trailing_final = None;

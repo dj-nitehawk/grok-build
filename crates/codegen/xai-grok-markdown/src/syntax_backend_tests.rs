@@ -53,7 +53,7 @@ fn syntax_backend_preserves_source_bytes() {
             let path = format!("example.{extension}");
             let mut highlighter = syntect
                 .highlight_lines_by_file_path(Path::new(&path))
-                .unwrap();
+                .unwrap_or_else(|| panic!("no syntax for {path}"));
             let mut reconstructed = String::new();
             for line in syntect::util::LinesWithEndings::from(&text) {
                 for (_, segment) in highlighter
@@ -107,17 +107,26 @@ fn syntax_backend_streaming_matches_batch_for_open_and_closed_fences() {
 #[test]
 fn resolves_extension_to_expected_grammar() {
     let syntect = test_syntect();
-    for (extension, name) in [
-        ("js", "JavaScript (Babel)"),
-        ("jsx", "JavaScript (Babel)"),
-        ("ps1", "PowerShell"),
-    ] {
+    // Fancy-regex dumps have no `JavaScript (Babel)` or PowerShell grammar.
+    // `.jsx` falls back to JavaScript; `.ps1` falls back to the shell grammar.
+    for extension in ["js", "jsx"] {
         assert_eq!(
-            name,
+            "JavaScript",
             syntect
                 .find_syntax_by_file_path(Path::new(&format!("example.{extension}")))
                 .unwrap()
                 .name
         );
     }
+    let shell = syntect
+        .find_syntax_by_file_path(Path::new("example.sh"))
+        .unwrap();
+    let ps1 = syntect
+        .find_syntax_by_file_path(Path::new("example.ps1"))
+        .unwrap();
+    assert_eq!(shell.name, ps1.name);
+    assert_eq!(
+        ps1.name,
+        syntect.find_syntax_by_token("powershell").unwrap().name
+    );
 }

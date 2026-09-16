@@ -185,12 +185,12 @@ fn external_prompt_editor_refuses_voice_and_pending_paste_with_visible_messages(
             hold: false,
             target: VoiceTarget::Agent(AgentId(0)),
             partial: Partial::Shown("partial".to_owned()),
-            route: Some(xai_grok_voice::VoiceRoute::Streaming),
+            route: Some(crate::voice_rt::VoiceRoute::Streaming),
         },
         VoiceState::Stopping {
             target: VoiceTarget::Agent(AgentId(0)),
             partial: Partial::Shown("partial".to_owned()),
-            route: Some(xai_grok_voice::VoiceRoute::Streaming),
+            route: Some(crate::voice_rt::VoiceRoute::Streaming),
         },
     ] {
         let mut app = test_app_with_agent();
@@ -323,9 +323,9 @@ fn config_editor_action_still_uses_typed_request() {
 }
 fn seed_foreign_resume_hint(
     app: &mut AppView,
-    tool: xai_grok_foreign_sessions::ForeignSessionTool,
+    tool: crate::foreign_sessions_api::ForeignSessionTool,
 ) {
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         claude: true,
         codex: true,
         cursor: true,
@@ -346,7 +346,7 @@ fn seed_foreign_resume_hint(
     app.apply_foreign_resume_detection(
         launch_token,
         &canonical_cwd,
-        Some(xai_grok_foreign_sessions::RecentForeignSession {
+        Some(crate::foreign_sessions_api::RecentForeignSession {
             tool,
             native_id: "native-id".into(),
             age: std::time::Duration::from_secs(60),
@@ -402,7 +402,7 @@ fn quit_returns_quit_effect() {
 }
 #[test]
 fn resume_foreign_session_consumes_hint_and_uses_each_tools_prompt() {
-    use xai_grok_foreign_sessions::ForeignSessionTool;
+    use crate::foreign_sessions_api::ForeignSessionTool;
     for (tool, prompt) in [
         (ForeignSessionTool::Claude, "/resume-claude native-id"),
         (ForeignSessionTool::Codex, "/resume-codex native-id"),
@@ -437,7 +437,7 @@ fn resume_foreign_session_without_hint_is_noop() {
 }
 #[test]
 fn resume_foreign_session_stashes_prompt_behind_trust_and_auth() {
-    use xai_grok_foreign_sessions::ForeignSessionTool;
+    use crate::foreign_sessions_api::ForeignSessionTool;
     for (tool, prompt, auth_pending) in [
         (ForeignSessionTool::Codex, "/resume-codex native-id", false),
         (ForeignSessionTool::Cursor, "/resume-cursor native-id", true),

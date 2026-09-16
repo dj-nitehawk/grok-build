@@ -19,20 +19,15 @@ pub const ENV_GROK_EXTRA_CA_BUNDLE: &str = "GROK_EXTRA_CA_BUNDLE";
 
 pub const ENV_SSL_CERT_FILE: &str = "SSL_CERT_FILE";
 
-/// ring on Windows ARM64: aws-lc-sys's jitterentropy is miscompiled for that target and overflows the stack on the first TLS handshake (xai-org/plugin-marketplace#426).
-const IS_RING_TARGET: bool = cfg!(all(windows, target_arch = "aarch64"));
-
-/// Installs aws-lc-rs, or ring where `IS_RING_TARGET`.
-/// First install wins; without a default, `ClientConfig::builder()` panics when `ring` and `aws-lc-rs` are both compiled in.
+/// Installs `ring` as the process default rustls crypto provider.
+/// First install wins. Fork slim pins ring (not aws-lc-rs) in this crate's rustls features.
 pub fn ensure_default_crypto_provider() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let provider = if IS_RING_TARGET {
-            rustls::crypto::ring::default_provider()
-        } else {
-            rustls::crypto::aws_lc_rs::default_provider()
-        };
-        if provider.install_default().is_err() {
+        if rustls::crypto::ring::default_provider()
+            .install_default()
+            .is_err()
+        {
             let supports_p521 = rustls::crypto::CryptoProvider::get_default().is_some_and(|p| {
                 p.signature_verification_algorithms
                     .supported_schemes()
@@ -140,8 +135,10 @@ fn client_config_with_shared_roots() -> rustls::ClientConfig {
     roots.add_parsable_certificates(cached_native_der().iter().cloned());
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     roots.add_parsable_certificates(extra_root_ders().iter().cloned().map(CertificateDer::from));
-    // Must stay on builder(): naming a provider here would bypass the per-target choice in ensure_default_crypto_provider.
-    rustls::ClientConfig::builder()
+    #[expect(clippy::expect_used)]
+    rustls::ClientConfig::builder_with_provider(rustls::crypto::ring::default_provider().into())
+        .with_safe_default_protocol_versions()
+        .expect("ring supports the default protocol versions")
         .with_root_certificates(roots)
         .with_no_client_auth()
 }

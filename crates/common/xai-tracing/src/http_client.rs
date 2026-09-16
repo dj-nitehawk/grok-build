@@ -1,16 +1,26 @@
 use async_trait::async_trait;
-use opentelemetry::global;
-use opentelemetry_http::HeaderInjector;
 use reqwest::header::HeaderMap;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware, Middleware};
 use tracing::{Instrument, Span, field};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+/// Inject W3C trace context from the active tracing span into HTTP headers.
+/// No-ops when feature `otlp` is off (no OpenTelemetry propagator linked).
 pub fn attach_trace_to_http_request(headers: &mut HeaderMap) {
-    global::get_text_map_propagator(|propagator| {
-        let context = Span::current().context();
-        propagator.inject_context(&context, &mut HeaderInjector(headers));
-    });
+    #[cfg(feature = "otlp")]
+    {
+        use opentelemetry::global;
+        use opentelemetry_http::HeaderInjector;
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+        global::get_text_map_propagator(|propagator| {
+            let context = Span::current().context();
+            propagator.inject_context(&context, &mut HeaderInjector(headers));
+        });
+    }
+    #[cfg(not(feature = "otlp"))]
+    {
+        let _ = headers;
+    }
 }
 
 pub type TracedHttpClient = ClientWithMiddleware;
@@ -72,7 +82,7 @@ impl Middleware for TracingMiddleware {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "otlp"))]
 mod tests {
     use super::*;
     use crate::testing::{OtelTestEnv, otel_span_id_hex, otel_trace_id_hex, parse_traceparent};

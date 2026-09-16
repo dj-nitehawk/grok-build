@@ -322,9 +322,9 @@ pub(crate) fn test_app() -> AppView {
         voice_mode_enabled: false,
         distribution: xai_grok_config::Distribution::STOCK,
         voice_ui_active: false,
-        voice_config: xai_grok_voice::VoiceConfig::default(),
+        voice_config: crate::voice_rt::VoiceConfig::default(),
         voice_auth: None,
-        voice_session: xai_grok_voice::VoiceSessionId::default(),
+        voice_session: crate::voice_rt::VoiceSessionId::default(),
         voice_trailing_final: None,
         voice_clip_deadline: None,
         voice_cmd_tx: None,
@@ -2342,7 +2342,7 @@ fn welcome_ctrl_q_requires_confirmation() {
 #[test]
 fn welcome_ctrl_u_update_keeps_priority_over_foreign_resume() {
     let mut app = test_app();
-    app.foreign_session_compat = xai_grok_foreign_sessions::EnabledForeignSessionSources {
+    app.foreign_session_compat = crate::foreign_sessions_api::EnabledForeignSessionSources {
         cursor: true,
         ..Default::default()
     };
@@ -2362,8 +2362,8 @@ fn welcome_ctrl_u_update_keeps_priority_over_foreign_resume() {
     app.apply_foreign_resume_detection(
         launch_token,
         &canonical_cwd,
-        Some(xai_grok_foreign_sessions::RecentForeignSession {
-            tool: xai_grok_foreign_sessions::ForeignSessionTool::Cursor,
+        Some(crate::foreign_sessions_api::RecentForeignSession {
+            tool: crate::foreign_sessions_api::ForeignSessionTool::Cursor,
             native_id: "cursor-session".into(),
             age: std::time::Duration::from_secs(30),
         }),
@@ -6315,7 +6315,7 @@ fn esc_abandons_an_outstanding_clip() {
     assert_eq!(VoiceState::Idle, app.voice_state);
     assert!(matches!(
         rx.try_recv(),
-        Ok(xai_grok_voice::VoiceCommand::Abort)
+        Ok(crate::voice_rt::VoiceCommand::Abort)
     ));
     assert_eq!(
         Some(crate::voice::RECORDING_DISCARDED_TOAST),
@@ -6334,7 +6334,7 @@ fn voice_overlay_bound_to_target_surface() {
     app.voice_state = VoiceState::Stopping {
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("partial".into()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
     app.active_view = ActiveView::Agent(id);
     assert!(

@@ -3,7 +3,7 @@
 
 use std::sync::LazyLock;
 
-use prometheus::{IntCounterVec, register_int_counter_vec};
+use crate::prometheus_facade::{IntCounterVec, register_int_counter_vec};
 use xai_grok_sandbox::command::grants::{Expiry, Grant, GrantScope, GrantSubject};
 use xai_grok_sandbox::command::violation::Blocked;
 use xai_grok_sandbox::command::{BackendName, SandboxMode, Violation};

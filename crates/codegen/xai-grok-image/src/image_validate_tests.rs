@@ -20,6 +20,7 @@ fn jpeg_bytes(w: u32, h: u32) -> Vec<u8> {
     buf
 }
 
+#[cfg(feature = "image-extra")]
 fn bmp_bytes(w: u32, h: u32) -> Vec<u8> {
     let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(w, h, Rgba([1, 2, 3, 4]));
     let mut buf = Vec::new();
@@ -28,6 +29,7 @@ fn bmp_bytes(w: u32, h: u32) -> Vec<u8> {
     buf
 }
 
+#[cfg(feature = "image-extra")]
 fn gif_bytes(w: u32, h: u32) -> Vec<u8> {
     let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(w, h, Rgba([1, 2, 3, 4]));
     let mut buf = Vec::new();
@@ -52,6 +54,7 @@ fn valid_jpeg() {
     assert_eq!(mime, "image/jpeg");
 }
 
+#[cfg(feature = "image-extra")]
 #[test]
 fn valid_bmp() {
     let bytes = bmp_bytes(5, 5);
@@ -59,6 +62,7 @@ fn valid_bmp() {
     assert_eq!(mime, "image/bmp");
 }
 
+#[cfg(feature = "image-extra")]
 #[test]
 fn valid_gif() {
     let bytes = gif_bytes(2, 2);
@@ -66,6 +70,7 @@ fn valid_gif() {
     assert_eq!(mime, "image/gif");
 }
 
+#[cfg(feature = "image-extra")]
 #[test]
 fn header_only_valid_gif_and_bmp() {
     let gif = gif_bytes(3, 5);
@@ -77,6 +82,7 @@ fn header_only_valid_gif_and_bmp() {
 }
 
 /// WebP round-trip pins the `ImageFormat::WebP` match arm.
+#[cfg(feature = "image-extra")]
 #[test]
 fn valid_webp() {
     use image::{DynamicImage, ImageBuffer, Rgba};
@@ -94,6 +100,7 @@ fn valid_webp() {
 }
 
 /// TIFF round-trip pins the `ImageFormat::Tiff` match arm.
+#[cfg(feature = "image-extra")]
 #[test]
 fn valid_tiff() {
     use image::{ImageBuffer, Rgba};
@@ -106,6 +113,26 @@ fn valid_tiff() {
     .unwrap();
     let (_, _, mime) = validate_image_bytes_with(&buf, true).unwrap();
     assert_eq!(mime, "image/tiff");
+}
+
+/// Slim builds do not link GIF. Magic that sniffs as GIF is an allow-list miss,
+/// not a decode failure, so callers cannot treat it as a corrupt image.
+#[cfg(not(feature = "image-extra"))]
+#[test]
+fn gif_magic_rejected_without_image_extra() {
+    let gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b";
+    let err = validate_image_bytes_with(gif, false).unwrap_err();
+    assert!(
+        matches!(err, ImageValidateError::WrongFormat),
+        "expected WrongFormat, got: {err:?}"
+    );
+    assert!(
+        matches!(
+            transcode_to_endpoint_png(gif),
+            Some(Err(ImageValidateError::WrongFormat))
+        ),
+        "transcode must not pass a compiled-out codec through"
+    );
 }
 
 #[test]
@@ -209,11 +236,13 @@ fn classify_image_error_maps_io_unexpected_eof_to_truncated() {
 /// Minimal valid ICO wrapping one PNG frame. The `image` crate's `ico`
 /// feature is enabled, so `guess_format` returns `ImageFormat::Ico` —
 /// which is intentionally NOT on the inference-side allow-list.
+#[cfg(feature = "image-extra")]
 fn ico_with_png_frame() -> Vec<u8> {
     xai_test_utils::image::ico_with_png_frame(&png_bytes(8, 8), 8, 8)
 }
 
 /// ICO → `WrongFormat` (recognised format, not allow-listed).
+#[cfg(feature = "image-extra")]
 #[test]
 fn ico_rejected_as_wrong_format() {
     let buf = ico_with_png_frame();
@@ -225,6 +254,7 @@ fn ico_rejected_as_wrong_format() {
 }
 
 /// Unrestricted variant accepts ICO so prompt-side viewer paths work.
+#[cfg(feature = "image-extra")]
 #[test]
 fn unrestricted_accepts_ico() {
     let buf = ico_with_png_frame();
@@ -243,9 +273,16 @@ fn unrestricted_accepts_png() {
 
 /// Engine-native formats must not be flagged for client-side PNG conversion.
 #[test]
-fn needs_endpoint_transcode_false_for_png_jpeg_webp() {
+fn needs_endpoint_transcode_false_for_png_jpeg() {
     assert!(!needs_endpoint_transcode(&png_bytes(4, 4)));
     assert!(!needs_endpoint_transcode(&jpeg_bytes(8, 8)));
+    assert!(!needs_endpoint_transcode(b"not an image"));
+}
+
+/// WebP is engine-native when the codec is compiled in.
+#[cfg(feature = "image-extra")]
+#[test]
+fn needs_endpoint_transcode_false_for_webp() {
     use image::{DynamicImage, ImageBuffer, Rgba};
     let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(4, 4, Rgba([1u8, 2, 3, 4]));
     let mut webp = Vec::new();
@@ -256,10 +293,10 @@ fn needs_endpoint_transcode_false_for_png_jpeg_webp() {
         )
         .unwrap();
     assert!(!needs_endpoint_transcode(&webp));
-    assert!(!needs_endpoint_transcode(b"not an image"));
 }
 
 /// GIF/BMP/TIFF/ICO need client-side PNG conversion.
+#[cfg(feature = "image-extra")]
 #[test]
 fn needs_endpoint_transcode_true_for_gif_bmp_tiff_ico() {
     assert!(needs_endpoint_transcode(&gif_bytes(4, 4)));
@@ -276,6 +313,7 @@ fn needs_endpoint_transcode_true_for_gif_bmp_tiff_ico() {
 }
 
 /// GIF/BMP/TIFF survive as real PNG bytes after client transcode.
+#[cfg(feature = "image-extra")]
 #[test]
 fn transcode_to_endpoint_png_converts_gif_bmp_tiff() {
     for bytes in [gif_bytes(6, 4), bmp_bytes(5, 5)] {
@@ -293,6 +331,7 @@ fn transcode_to_endpoint_png_converts_gif_bmp_tiff() {
 }
 
 /// Tiny GIF must upscale so it clears the inference backend's 512-pixel floor after we PNG.
+#[cfg(feature = "image-extra")]
 #[test]
 fn transcode_to_endpoint_png_upscales_tiny_gif() {
     let png = transcode_to_endpoint_png(&gif_bytes(16, 16))
@@ -311,6 +350,7 @@ fn transcode_to_endpoint_png_upscales_tiny_gif() {
 }
 
 /// Already-large inputs are not upscaled further.
+#[cfg(feature = "image-extra")]
 #[test]
 fn transcode_to_endpoint_png_leaves_large_gif_dimensions() {
     let png = transcode_to_endpoint_png(&gif_bytes(200, 150))
@@ -322,6 +362,7 @@ fn transcode_to_endpoint_png_leaves_large_gif_dimensions() {
 
 /// Extreme aspect ratio: header under the pixel budget, but favicon-style
 /// upscale would exceed MAX_TRANSCODE_DECODE_PIXELS — must not resize.
+#[cfg(feature = "image-extra")]
 #[test]
 fn transcode_to_endpoint_png_skips_upscale_when_post_resize_exceeds_budget() {
     // 8000×2 = 16_000 px (under 16M). Short side 2 needs ×64 → 512_000×128 =
@@ -339,6 +380,7 @@ fn transcode_to_endpoint_png_skips_upscale_when_post_resize_exceeds_budget() {
 }
 
 /// ICO still transcodes to PNG through the general path.
+#[cfg(feature = "image-extra")]
 #[test]
 fn transcode_to_endpoint_png_handles_ico() {
     let ico = ico_with_png_frame();
@@ -351,6 +393,7 @@ fn transcode_to_endpoint_png_handles_ico() {
 
 /// Corrupt GIF must surface as an error, not as `None` (caller would otherwise
 /// pass the broken bytes through and trip the inference backend with a 400).
+#[cfg(feature = "image-extra")]
 #[test]
 fn transcode_to_endpoint_png_corrupt_gif_is_err_not_none() {
     let mut gif = gif_bytes(8, 8);
@@ -507,6 +550,7 @@ fn jpeg_reaches_eoi_walks_multiple_scans() {
     assert!(!jpeg_reaches_eoi(prefix));
 }
 
+#[cfg(feature = "image-extra")]
 #[test]
 fn webp_riff_complete_valid_true_truncated_false() {
     use image::{DynamicImage, ImageBuffer, Rgba};
@@ -636,6 +680,7 @@ fn image_structurally_complete_dispatches_by_format() {
     t.truncate(t.len() / 2);
     assert!(!image_structurally_complete(&t));
     // Formats without a walk (strict decoders) pass through.
+    #[cfg(feature = "image-extra")]
     assert!(image_structurally_complete(&gif_bytes(4, 4)));
     // Unsniffable bytes fail.
     assert!(!image_structurally_complete(b"plain text"));

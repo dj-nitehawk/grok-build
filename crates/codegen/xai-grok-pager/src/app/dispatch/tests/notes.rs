@@ -721,7 +721,7 @@ fn refused_bare_feedback_keeps_the_composer_image_and_is_visible() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("dictated text".to_owned()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
     for refusal in Refusal::iter() {
         let mut app = test_app_with_agent();
@@ -805,7 +805,7 @@ fn minimal_voice_refusal_is_a_scrollback_block() {
         hold: false,
         target: VoiceTarget::Agent(id),
         partial: Partial::Shown("dictated text".to_owned()),
-        route: Some(xai_grok_voice::VoiceRoute::Streaming),
+        route: Some(crate::voice_rt::VoiceRoute::Streaming),
     };
     app.agents
         .get_mut(&id)
@@ -1076,14 +1076,14 @@ fn feedback_modal_open_refuses_visibly_under_every_input_owner() {
                     hold: false,
                     target: VoiceTarget::Agent(id),
                     partial: Partial::Shown("partial".to_owned()),
-                    route: Some(xai_grok_voice::VoiceRoute::Streaming),
+                    route: Some(crate::voice_rt::VoiceRoute::Streaming),
                 };
             }
             Owner::VoiceStopping => {
                 app.voice_state = VoiceState::Stopping {
                     target: VoiceTarget::Agent(id),
                     partial: Partial::Shown("partial".to_owned()),
-                    route: Some(xai_grok_voice::VoiceRoute::Streaming),
+                    route: Some(crate::voice_rt::VoiceRoute::Streaming),
                 };
             }
             Owner::QuestionCard => {

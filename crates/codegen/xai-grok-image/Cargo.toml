@@ -5,9 +5,15 @@ edition.workspace = true
 license = "Apache-2.0"
 description = "Image validation and transcoding shared by Grok tools and clients"
 
+[features]
+default = []
+# GIF/WebP/BMP/TIFF/ICO. Off by default: this crate is always linked, and Cargo
+# unifies `image` features, so enabling them here puts the decoders in the slim bin.
+image-extra = ["image/gif", "image/webp", "image/bmp", "image/tiff", "image/ico"]
+
 [dependencies]
 crc32fast = { workspace = true }
-image = { workspace = true, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
+image = { workspace = true, features = ["png", "jpeg"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]

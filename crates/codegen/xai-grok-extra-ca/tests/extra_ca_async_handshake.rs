@@ -29,7 +29,7 @@ fn http1_only_client_stays_on_http11_against_an_h2_server() {
     }
 
     let mut server_config = rustls::ServerConfig::builder_with_provider(
-        rustls::crypto::aws_lc_rs::default_provider().into(),
+        rustls::crypto::ring::default_provider().into(),
     )
     .with_safe_default_protocol_versions()
     .expect("protocol versions")

@@ -1,9 +1,9 @@
 use opentelemetry::global;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub fn link_span_to_current(span: &tracing::Span) {
     use opentelemetry::trace::TraceContextExt;
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
 
     let current = tracing::Span::current();
     if current.is_none() {
@@ -12,11 +12,19 @@ pub fn link_span_to_current(span: &tracing::Span) {
     span.add_link(current.context().span().span_context().clone());
 }
 
+/// Extract the current span's W3C `traceparent` string for propagation
+/// across channel/task boundaries where span context is lost.
+///
+/// Returns `None` when no valid span is active. Export is separate (`export-otel`);
+/// ids are still minted by the non-exporting tracer layer.
 pub fn current_traceparent() -> Option<String> {
     span_traceparent(&tracing::Span::current())
 }
 
 pub fn span_traceparent(span: &tracing::Span) -> Option<String> {
+    use opentelemetry::global;
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
     if span.is_none() {
         return None;
     }
@@ -54,6 +62,13 @@ pub fn trace_context_headers() -> HeaderMap {
 }
 
 pub fn inject_trace_context(headers: &mut HeaderMap) {
+    use opentelemetry::global;
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+    // Prefer the context from the current tracing span (set by OpenTelemetryLayer).
+    // Fall back to opentelemetry::Context::current() (thread-local) for code paths
+    // that run outside a tracing span but on a thread that has an attached OTel context
+    // (e.g. tasks created via spawn_local that inherit the thread-local context).
     let current_span = tracing::Span::current();
     let cx = if current_span.is_none() {
         opentelemetry::Context::current()
@@ -88,6 +103,7 @@ pub fn span_from_meta_traceparent(
     meta: &serde_json::Map<String, serde_json::Value>,
 ) -> tracing::Span {
     let span = tracing::info_span!("acp_dispatch");
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
     if let Some(ctx) = meta
         .get("traceparent")
         .and_then(|v| v.as_str())
@@ -98,7 +114,9 @@ pub fn span_from_meta_traceparent(
     span
 }
 
+/// Link `span` to `_meta.traceparent`. Must run before the span is entered.
 pub fn link_span_to_meta(span: &tracing::Span, meta: &serde_json::Value) -> bool {
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
     let Some(ctx) = meta
         .get("traceparent")
         .and_then(|v| v.as_str())
@@ -117,6 +135,7 @@ pub fn link_current_span_to_meta(meta: &serde_json::Value) {
 /// open. Must run before `span` starts (first child or context read); returns `false` if it could
 /// not apply.
 pub fn set_parent_from_traceparent(span: &tracing::Span, traceparent: &str) -> bool {
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
     extract_context(traceparent).is_some_and(|cx| span.set_parent(cx).is_ok())
 }
 
@@ -128,6 +147,31 @@ fn extract_context(traceparent: &str) -> Option<opentelemetry::Context> {
 
     let ctx = opentelemetry::global::get_text_map_propagator(|p| p.extract(&carrier));
     ctx.span().span_context().is_valid().then_some(ctx)
+}
+
+/// Process-wide tracer layer that mints W3C span ids and does not export them.
+///
+/// Slim builds leave `export-otel` off. Sampling requests and ACP `_meta.traceparent`
+/// still need those ids, so the composition root installs this layer instead of an
+/// OTLP exporter. The provider lives for the process.
+pub fn non_exporting_tracer_layer<S>() -> impl tracing_subscriber::layer::Layer<S>
+where
+    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
+{
+    use std::sync::OnceLock;
+
+    use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry_sdk::propagation::TraceContextPropagator;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
+
+    static PROVIDER: OnceLock<SdkTracerProvider> = OnceLock::new();
+    let provider = PROVIDER.get_or_init(|| {
+        global::set_text_map_propagator(TraceContextPropagator::new());
+        SdkTracerProvider::builder().build()
+    });
+    tracing_opentelemetry::layer()
+        .with_tracer(provider.tracer("grok"))
+        .with_context_activation(false)
 }
 
 /// A held local trace setup: an in-process, non-exporting tracer plus the W3C propagator, installed
@@ -177,7 +221,7 @@ mod tests {
         assert!(headers.get("traceparent").is_none());
     }
 
-    #[test]
+        #[test]
     fn test_header_map_injector_valid_header() {
         let mut headers = HeaderMap::new();
         {
@@ -195,7 +239,7 @@ mod tests {
         );
     }
 
-    #[test]
+        #[test]
     fn test_header_map_injector_invalid_header_name() {
         let mut headers = HeaderMap::new();
         {
@@ -211,7 +255,7 @@ mod tests {
         assert!(headers.is_empty());
     }
 
-    #[test]
+        #[test]
     fn test_header_map_injector_invalid_header_value() {
         let mut headers = HeaderMap::new();
         {
@@ -227,13 +271,13 @@ mod tests {
         assert!(headers.is_empty());
     }
 
-    #[test]
+        #[test]
     fn test_extract_context_rejects_invalid_traceparent() {
         assert!(extract_context("not-a-valid-traceparent").is_none());
         assert!(extract_context("").is_none());
     }
 
-    #[test]
+        #[test]
     fn traceparent_of_span_captures_own_span_id_not_parent() {
         use opentelemetry::trace::TraceContextExt as _;
         use tracing_opentelemetry::OpenTelemetrySpanExt as _;
@@ -256,7 +300,9 @@ mod tests {
         assert_ne!(*span_id, parent_id);
     }
 
-    #[test]
+    /// E2E: _meta.traceparent -> link_current_span_to_meta -> current span
+    /// -> inject_trace_context_into_request -> outbound HTTP header carries same traceId.
+        #[test]
     fn test_link_meta_then_inject_propagates_trace_id() {
         let _subscriber_guard = set_local_trace_subscriber();
 
@@ -291,7 +337,7 @@ mod tests {
         );
     }
 
-    #[test]
+            #[test]
     fn set_parent_from_traceparent_nests_child_without_holding_parent_open() {
         use opentelemetry::trace::TracerProvider as _;
         use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -346,7 +392,7 @@ mod tests {
         assert!(parent_data.end_time <= child_data.end_time);
     }
 
-    #[test]
+        #[test]
     fn set_parent_from_traceparent_rejects_started_span() {
         let _guard = set_local_trace_subscriber();
 
@@ -423,5 +469,21 @@ mod tests {
             "traceparent should have sampled flag set, got: {}",
             traceparent
         );
+    }
+
+    #[test]
+    fn non_exporting_tracer_layer_mints_traceparent() {
+        use tracing_subscriber::layer::SubscriberExt as _;
+
+        let layer = non_exporting_tracer_layer();
+        let _guard =
+            tracing::subscriber::set_default(tracing_subscriber::Registry::default().with(layer));
+        let span = tracing::info_span!("sampling");
+        let tp = span_traceparent(&span).expect("non-exporting layer mints a traceparent");
+        let fields: Vec<&str> = tp.split('-').collect();
+        assert_eq!(fields.len(), 4, "w3c traceparent: {tp}");
+        assert_eq!(fields[0], "00");
+        assert_eq!(fields[1].len(), 32);
+        assert_eq!(fields[2].len(), 16);
     }
 }

@@ -1192,25 +1192,21 @@ fn index_root_for(
     };
     Ok(crate::session::git::find_git_root_from_path(&cwd).unwrap_or(cwd))
 }
+#[cfg(feature = "codebase-graph")]
 fn resolve_index_for_workspace(
     ws: &WorkspaceHandle,
     root: Option<&std::path::Path>,
-) -> WorkspaceResult<(
-    std::sync::Arc<xai_codebase_graph::IndexManagerHandle>,
-    std::path::PathBuf,
-)> {
+) -> WorkspaceResult<(crate::file_system::CodebaseIndexHandle, std::path::PathBuf)> {
     let index_root = index_root_for(ws, root)?;
     let (handle, _was_new) = ws.get_or_create_codebase_index(index_root.clone());
     Ok((handle, index_root))
 }
+#[cfg(feature = "codebase-graph")]
 fn resolve_index_for_file(
     ws: &WorkspaceHandle,
     root: Option<&std::path::Path>,
     file: &str,
-) -> WorkspaceResult<(
-    std::sync::Arc<xai_codebase_graph::IndexManagerHandle>,
-    std::path::PathBuf,
-)> {
+) -> WorkspaceResult<(crate::file_system::CodebaseIndexHandle, std::path::PathBuf)> {
     if root.is_none() {
         let file_path = std::path::Path::new(file);
         if let Some(handle) = ws.get_covering_codebase_index(file_path) {
@@ -1219,6 +1215,26 @@ fn resolve_index_for_file(
     }
     resolve_index_for_workspace(ws, root)
 }
+#[cfg(not(feature = "codebase-graph"))]
+fn codebase_graph_not_compiled() -> WorkspaceError {
+    WorkspaceError::HubError(
+        "codebase graph is not compiled into this build (missing feature `codebase-graph`)".into(),
+    )
+}
+
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeGotoDefinitionReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Err(codebase_graph_not_compiled())
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeGotoDefinitionReq {
     async fn execute(
@@ -1234,6 +1250,19 @@ impl WorkspaceOp for CodeGotoDefinitionReq {
         Ok(query_result_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeGotoReferencesReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Err(codebase_graph_not_compiled())
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeGotoReferencesReq {
     async fn execute(
@@ -1254,6 +1283,19 @@ impl WorkspaceOp for CodeGotoReferencesReq {
         Ok(query_result_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeFindDefinitionsReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Err(codebase_graph_not_compiled())
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeFindDefinitionsReq {
     async fn execute(
@@ -1272,6 +1314,19 @@ impl WorkspaceOp for CodeFindDefinitionsReq {
         Ok(symbol_locations_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeFindReferencesReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Err(codebase_graph_not_compiled())
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeFindReferencesReq {
     async fn execute(
@@ -1290,6 +1345,19 @@ impl WorkspaceOp for CodeFindReferencesReq {
         Ok(symbol_locations_to_response(result))
     }
 }
+#[cfg(not(feature = "codebase-graph"))]
+#[async_trait]
+impl WorkspaceOp for CodeIndexStatusReq {
+    async fn execute(
+        &self,
+        ws: &WorkspaceHandle,
+        _session_id: Option<&str>,
+    ) -> WorkspaceResult<Self::Response> {
+        let _ = (self, ws);
+        Err(codebase_graph_not_compiled())
+    }
+}
+#[cfg(feature = "codebase-graph")]
 #[async_trait]
 impl WorkspaceOp for CodeIndexStatusReq {
     async fn execute(
@@ -1321,6 +1389,7 @@ impl WorkspaceOp for CodeIndexStatusReq {
         }
     }
 }
+#[cfg(feature = "codebase-graph")]
 fn query_result_to_response(
     result: Result<xai_codebase_graph::QueryResult, xai_codebase_graph::QueryError>,
 ) -> CodeNavResponse {
@@ -1339,6 +1408,7 @@ fn query_result_to_response(
         Err(_) => CodeNavResponse { locations: vec![] },
     }
 }
+#[cfg(feature = "codebase-graph")]
 fn symbol_locations_to_response(
     locations: Vec<xai_codebase_graph::SymbolLocation>,
 ) -> CodeNavResponse {
@@ -1840,6 +1910,85 @@ impl WorkspaceOps {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Slim builds must not report a successful empty hit list. That is
+    /// indistinguishable from "this symbol has no definition".
+    #[cfg(not(feature = "codebase-graph"))]
+    #[tokio::test]
+    async fn code_nav_queries_report_not_compiled_instead_of_empty_hits() {
+        let ops = WorkspaceOps::for_test();
+        let goto = ops
+            .dispatch(
+                &CodeGotoDefinitionReq {
+                    root: None,
+                    file: "src/lib.rs".into(),
+                    line: 1,
+                    col: 1,
+                },
+                None,
+            )
+            .await
+            .expect_err("missing graph must not look like zero definitions");
+        let msg = goto.to_string();
+        assert!(
+            msg.contains("not compiled") && msg.contains("codebase-graph"),
+            "{msg}"
+        );
+
+        let refs = ops
+            .dispatch(
+                &CodeGotoReferencesReq {
+                    root: None,
+                    file: "src/lib.rs".into(),
+                    line: 1,
+                    col: 1,
+                    include_definition: true,
+                },
+                None,
+            )
+            .await
+            .expect_err("references");
+        assert!(refs.to_string().contains("not compiled"), "{refs}");
+
+        let find_defs = ops
+            .dispatch(
+                &CodeFindDefinitionsReq {
+                    root: None,
+                    symbol: "Foo".into(),
+                    context_file: None,
+                },
+                None,
+            )
+            .await
+            .expect_err("find definitions");
+        assert!(
+            find_defs.to_string().contains("not compiled"),
+            "{find_defs}"
+        );
+
+        let find_refs = ops
+            .dispatch(
+                &CodeFindReferencesReq {
+                    root: None,
+                    symbol: "Foo".into(),
+                    context_file: None,
+                },
+                None,
+            )
+            .await
+            .expect_err("find references");
+        assert!(
+            find_refs.to_string().contains("not compiled"),
+            "{find_refs}"
+        );
+
+        let status = ops
+            .dispatch(&CodeIndexStatusReq { root: None }, None)
+            .await
+            .expect_err("status must not look like an idle index");
+        assert!(status.to_string().contains("not compiled"), "{status}");
+    }
+
     /// The reported bug: every window's git queries ran against the workspace launch directory.
     /// `git_op_cwd` must return the per-session repo the client sends, and only fall back to the workspace root when none is given.
     #[tokio::test]

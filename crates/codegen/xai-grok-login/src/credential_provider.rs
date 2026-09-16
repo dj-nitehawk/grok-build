@@ -874,7 +874,8 @@ mod tests {
             "snapshot must reflect refreshed token for subsequent apply() calls"
         );
     }
-
+    /// Session bearer stays on https xAI endpoints. `xai-grok-login` has no
+    /// `memory` feature; scoping always goes through `xai-grok-memory`.
     #[test]
     fn embedding_session_credentials_scopes_to_first_party() {
         let _guard = EarlyInvalidationGuard::pin_to_default();

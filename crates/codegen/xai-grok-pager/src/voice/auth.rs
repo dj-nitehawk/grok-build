@@ -10,9 +10,9 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use crate::voice_rt::{SharedVoiceAuth, SttRoutes, VoiceAuthError, VoiceAuthProvider};
 use xai_grok_tools::types::SharedApiKeyProvider;
 use xai_grok_tools::types::api_key_provider::SideCallBearerError;
-use xai_grok_voice::{SharedVoiceAuth, SttRoutes, VoiceAuthError, VoiceAuthProvider};
 /// Adapts the shell's `ApiKeyProvider` onto [`VoiceAuthProvider`].
 ///
 /// Resolves a token per request (never a static snapshot), so a long session follows the `AuthManager` instead of pinning a token that 401s.
@@ -52,6 +52,6 @@ pub fn build_stt_routes(auth_manager: Arc<xai_grok_login::AuthManager>) -> SttRo
         clip_transcriber,
     }
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "voice"))]
 #[path = "auth_tests.rs"]
 mod tests;

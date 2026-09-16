@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "engine")]
 use crate::{
     MAX_PHASE_DETAIL_LEN, MAX_PHASE_TITLE_LEN, MAX_WORKFLOW_DESCRIPTION_LEN, MAX_WORKFLOW_NAME_LEN,
     MAX_WORKFLOW_PHASES, MAX_WORKFLOW_WHEN_TO_USE_LEN,
@@ -46,8 +47,14 @@ pub enum MetaError {
     TooManyPhases { max: usize, actual: usize },
 }
 
+#[cfg(feature = "engine")]
 const META_PROBE_MAX_OPS: u64 = 100_000;
 
+/// Parse workflow meta from a Rhai script (requires feature `engine`).
+///
+/// Without `engine`, returns a clear compile-out error so registry/list paths
+/// degrade cleanly without linking rhai.
+#[cfg(feature = "engine")]
 pub fn extract_meta(script: &str) -> Result<WorkflowMeta, MetaError> {
     if !first_statement_is_meta(script) {
         return Err(MetaError::MetaNotFirst);
@@ -79,6 +86,14 @@ pub fn extract_meta(script: &str) -> Result<WorkflowMeta, MetaError> {
     Ok(meta)
 }
 
+#[cfg(not(feature = "engine"))]
+pub fn extract_meta(_script: &str) -> Result<WorkflowMeta, MetaError> {
+    Err(MetaError::Parse(
+        "workflow engine is not compiled into this build (missing feature `engine`)".into(),
+    ))
+}
+
+#[cfg(feature = "engine")]
 fn validate_meta(meta: &WorkflowMeta) -> Result<(), MetaError> {
     if meta.name.trim().is_empty() {
         return Err(MetaError::MissingField("meta.name"));
@@ -137,6 +152,7 @@ fn validate_meta(meta: &WorkflowMeta) -> Result<(), MetaError> {
     Ok(())
 }
 
+#[cfg(feature = "engine")]
 fn validate_len(field: &str, value: &str, max: usize) -> Result<(), MetaError> {
     if value.len() > max {
         return Err(MetaError::StringTooLong {
@@ -148,6 +164,7 @@ fn validate_len(field: &str, value: &str, max: usize) -> Result<(), MetaError> {
     Ok(())
 }
 
+#[cfg(feature = "engine")]
 fn valid_workflow_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()
@@ -163,6 +180,7 @@ fn valid_workflow_name(name: &str) -> bool {
         && !bytes.windows(2).any(|pair| pair == b"--")
 }
 
+#[cfg(feature = "engine")]
 fn first_statement_is_meta(script: &str) -> bool {
     let mut rest = script;
     loop {
@@ -185,7 +203,7 @@ fn first_statement_is_meta(script: &str) -> bool {
     rest.starts_with("let meta") || rest.starts_with("const meta")
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "engine"))]
 mod tests {
     use super::*;
 

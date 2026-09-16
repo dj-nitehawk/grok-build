@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::LazyLock;
 
-use prometheus::{IntCounterVec, register_int_counter_vec};
+use crate::prometheus_facade::{IntCounterVec, register_int_counter_vec};
 use serde_json::Value;
 use xai_grok_agent::repo::RepoDirChain;
 use xai_grok_paths::AbsPathBuf;

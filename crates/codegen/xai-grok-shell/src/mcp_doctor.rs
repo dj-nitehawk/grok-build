@@ -953,7 +953,9 @@ mod tests {
 
     /// Resets the process-global Claude import marker cache on drop (mirrors the module-private
     /// claude_import::tests::MarkerGuard).
+    #[cfg(feature = "foreign-sessions")]
     struct MarkerCacheReset;
+    #[cfg(feature = "foreign-sessions")]
     impl Drop for MarkerCacheReset {
         fn drop(&mut self) {
             crate::claude_import::reset_marker_cache_for_test();
@@ -962,6 +964,7 @@ mod tests {
 
     /// The TOML walk and the merge walk partition the subjects: a config.toml server is judged
     /// once, and the merge walk still contributes the non-TOML tiers.
+    #[cfg(feature = "foreign-sessions")]
     #[test]
     #[serial_test::serial]
     fn policy_subjects_judge_each_definition_once() {

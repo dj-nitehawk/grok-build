@@ -1,4 +1,4 @@
-use xai_grok_voice::VoiceRoute;
+use crate::voice_rt::VoiceRoute;
 
 use super::{Partial, VoiceState, VoiceTarget};
 use crate::app::agent::AgentId;
