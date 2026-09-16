@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Semaphore;
-use xai_grok_foreign_sessions::{
+
+use crate::foreign_sessions_api::{
     EnabledForeignSessionSources, ForeignSessionSummary, ForeignSessionTool, RecentForeignSession,
 };
 pub(crate) const RESUME_HINT_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
@@ -467,7 +468,7 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::time::{Duration, UNIX_EPOCH};
-    use xai_grok_foreign_sessions::ForeignSessionSource;
+    use crate::foreign_sessions_api::ForeignSessionSource;
     struct CancellationSignal(Option<tokio::sync::oneshot::Sender<()>>);
     impl Drop for CancellationSignal {
         fn drop(&mut self) {

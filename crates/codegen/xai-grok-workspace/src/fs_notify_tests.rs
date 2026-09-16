@@ -22,6 +22,7 @@ fn workspace_event_kind_round_trip() {
     );
 }
 
+#[cfg(feature = "codebase-graph")]
 #[test]
 fn parse_diff_name_status_all_variants() {
     use xai_codebase_graph::FileEventKind;
@@ -283,6 +284,7 @@ async fn a_removal_under_a_symlinked_root_is_emitted_relative() {
 }
 
 /// A real, cache-less index over `root` (created if missing).
+#[cfg(feature = "codebase-graph")]
 fn index_over(root: &Path) -> Arc<xai_codebase_graph::IndexManagerHandle> {
     use xai_codebase_graph::{IndexManager, IndexManagerConfig};
     std::fs::create_dir_all(root).expect("mkdir");
@@ -294,6 +296,7 @@ fn index_over(root: &Path) -> Arc<xai_codebase_graph::IndexManagerHandle> {
 
 /// Where `idx` defines `symbol`, as paths relative to its root. Commands are applied in order, so
 /// this sees every event sent before it.
+#[cfg(feature = "codebase-graph")]
 fn definition_of(idx: &xai_codebase_graph::IndexManagerHandle, symbol: &str) -> Vec<String> {
     idx.find_definitions_blocking(symbol.to_owned(), None)
         .expect("index alive")
@@ -305,6 +308,7 @@ fn definition_of(idx: &xai_codebase_graph::IndexManagerHandle, symbol: &str) -> 
 /// A `Renamed` pair whose halves share an index reaches it as one `FileEvent` carrying both paths
 /// (the graph decomposes it into Removed(from) + Created(to) only then); any other batch is one
 /// event per covering index, each holding that index's paths, uncovered paths dropped.
+#[cfg(feature = "codebase-graph")]
 #[test]
 fn a_batch_reaches_each_index_as_one_file_event() {
     use xai_codebase_graph::FileEventKind;
@@ -371,6 +375,7 @@ fn a_batch_reaches_each_index_as_one_file_event() {
 /// `moved_symbol_xyz`) becomes `b/new.rs`. Each half goes to its own index as its own event, so A
 /// forgets the symbol and B learns it. Sent whole to A, A would index a file outside its root under
 /// an absolute key and B would never hear of the file.
+#[cfg(feature = "codebase-graph")]
 #[test]
 fn a_rename_across_index_roots_moves_the_symbol_between_the_indexes() {
     use xai_codebase_graph::FileEventKind;
@@ -432,6 +437,7 @@ fn a_rename_across_index_roots_moves_the_symbol_between_the_indexes() {
 /// Nested roots, the shape `get_covering` routes by longest prefix: R over `r/`, S over `r/sub/`.
 /// `r/old.rs` → `r/sub/new.rs` lands on S as a Created, so the index every query for that file is
 /// routed to is the one that knows it.
+#[cfg(feature = "codebase-graph")]
 #[test]
 fn a_rename_into_a_nested_root_reaches_the_inner_index() {
     use xai_codebase_graph::FileEventKind;

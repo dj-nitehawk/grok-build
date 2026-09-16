@@ -10,6 +10,9 @@ description = "Authentication subsystem for the grok shell crate family: login f
 # (compile_error!-guarded). Run in release (debug overflows loom's stacks):
 #   cargo test --release --features loom -p xai-grok-login --lib flock_wait::loom -- --test-threads=1
 loom = ["dep:loom"]
+# OS sleep/wake listener for auth sleep gate (optional xai-system-power).
+# Fork slim leaves this off; shell forwards it via `system-power`.
+system-power = ["dep:xai-system-power"]
 # Exposes `#[cfg(test)]`-only helpers to downstream crates' test targets.
 test-support = []
 default-bazel = ["test-support"]
@@ -63,7 +66,8 @@ xai-grok-shell-base = { workspace = true }
 xai-grok-telemetry = { workspace = true }
 xai-grok-tools = { workspace = true }
 xai-grok-version = { workspace = true }
-xai-system-power = { workspace = true }
+# Optional OS power listener (feature `system-power`). Fork slim leaves off.
+xai-system-power = { workspace = true, optional = true }
 
 # gRPC stack for the gated login path; compiled out unless the feature is on.
 tonic = { workspace = true, optional = true }

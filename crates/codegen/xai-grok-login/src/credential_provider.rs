@@ -874,7 +874,8 @@ mod tests {
             "snapshot must reflect refreshed token for subsequent apply() calls"
         );
     }
-
+    /// Real scoping lives in product memory; the slim stub always returns empty.
+    #[cfg(feature = "memory")]
     #[test]
     fn embedding_session_credentials_scopes_to_first_party() {
         let _guard = EarlyInvalidationGuard::pin_to_default();

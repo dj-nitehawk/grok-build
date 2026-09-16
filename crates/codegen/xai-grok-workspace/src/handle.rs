@@ -1,10 +1,10 @@
 //! [`WorkspaceHandle`] -- public handle to a workspace instance.
-use fastrace::future::FutureExt as _;
-use fastrace::local::LocalSpan;
-use prometheus::{
+use crate::prometheus_facade::{
     Histogram, HistogramVec, IntCounter, IntCounterVec, register_histogram, register_histogram_vec,
     register_int_counter, register_int_counter_vec,
 };
+use fastrace::future::FutureExt as _;
+use fastrace::local::LocalSpan;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -183,6 +183,7 @@ use crate::capability::CapabilityMode;
 use crate::config::{
     AgentSessionConfig, DEFAULT_EVENT_BUFFER_CAPACITY, HookSourceConfig, WorkspaceConfig,
 };
+use crate::diag::DiagHandle;
 use crate::error::{WorkspaceError, WorkspaceResult};
 use crate::session::swap_policy::{
     DeferReason, SessionSnapshot, SwapAction, SwapDecision, SwapPolicy, SwapTrigger,
@@ -195,7 +196,6 @@ use crate::workspace_ops::{
     GetFileEntry, GetFileResult, GetFilesRes, PutFileEntry, PutFileResult, PutFilesRes,
 };
 use xai_file_utils::queue::EnqueueOutcome;
-use xai_grok_diag_server::DiagHandle;
 use xai_grok_session_events::types::CancellationCategory;
 use xai_grok_session_events::{Event, SessionRelationship, TurnOutcomeLabel};
 use xai_tool_protocol::turn_hook::{AfterTurnAckPayload, AfterTurnAckStatus};
@@ -2304,21 +2304,27 @@ impl WorkspaceHandle {
     pub fn get_or_create_codebase_index(
         &self,
         cwd: std::path::PathBuf,
-    ) -> (Arc<xai_codebase_graph::IndexManagerHandle>, bool) {
+    ) -> (crate::file_system::CodebaseIndexHandle, bool) {
         self.shared.codebase_indexes.lock().get_or_create(cwd)
     }
     pub fn get_codebase_index(
         &self,
         cwd: &std::path::Path,
-    ) -> Option<Arc<xai_codebase_graph::IndexManagerHandle>> {
+    ) -> Option<crate::file_system::CodebaseIndexHandle> {
         self.shared.codebase_indexes.lock().get(cwd)
     }
     pub fn get_covering_codebase_index(
         &self,
         path: &std::path::Path,
-    ) -> Option<Arc<xai_codebase_graph::IndexManagerHandle>> {
+    ) -> Option<crate::file_system::CodebaseIndexHandle> {
         self.shared.codebase_indexes.lock().get_covering(path)
     }
+    #[cfg(not(feature = "codebase-graph"))]
+    fn spawn_codebase_index_event_forwarder(&self) -> tokio::task::JoinHandle<()> {
+        let _ = self;
+        tokio::spawn(async {})
+    }
+    #[cfg(feature = "codebase-graph")]
     fn spawn_codebase_index_event_forwarder(&self) -> tokio::task::JoinHandle<()> {
         let shared = self.shared.clone();
         let root_cwd = self.shared.root_cwd.clone();

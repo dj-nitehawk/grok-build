@@ -11,10 +11,25 @@ pub mod config;
 pub mod context;
 pub mod enums;
 pub mod events;
+// External customer OTEL stream: real exporters when `export-otel`, else stub.
+#[cfg(feature = "export-otel")]
+pub mod external;
+#[cfg(not(feature = "export-otel"))]
+#[path = "external_stub.rs"]
 pub mod external;
 pub mod http;
 pub mod id;
+// Internal OTLP span layer: real when `export-otel`, else no-op Identity layer.
+#[cfg(feature = "export-otel")]
 pub mod otel_layer;
+#[cfg(not(feature = "export-otel"))]
+#[path = "otel_layer_stub.rs"]
+pub mod otel_layer;
+// Sentry: real client when `export-sentry`, else no-op facade.
+#[cfg(feature = "export-sentry")]
+pub mod sentry;
+#[cfg(not(feature = "export-sentry"))]
+#[path = "sentry_stub.rs"]
 pub mod sentry;
 
 // Leaf modules re-exported at crate root below, so the public API stays unchanged.
@@ -24,6 +39,7 @@ mod session;
 mod spans;
 
 // OTLP HTTP client now lives in the low-level foundation crate; re-export keeps `crate::otlp` paths working.
+#[cfg(feature = "export-otel")]
 pub(crate) use xai_grok_otel::otlp;
 // Shared redaction utils now live in the foundation crate; re-export keeps `crate::redact_common` paths working.
 pub(crate) use xai_grok_otel::redact_common;
