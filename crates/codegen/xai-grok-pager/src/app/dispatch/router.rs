@@ -146,7 +146,7 @@ pub(super) fn dispatch_copy_auth_url(
 /// Do not extract a returning arm into a handler: as a delegation its `return`s become plain arm values and start flowing through the tail.
 pub(in crate::app::dispatch) fn confirmed_quit(app: &mut AppView) -> Vec<Effect> {
     if let Some(tx) = &app.voice_cmd_tx {
-        let _ = tx.try_send(xai_grok_voice::VoiceCommand::Shutdown);
+        let _ = tx.try_send(crate::voice_rt::VoiceCommand::Shutdown);
     }
     let mut effects = unregister_all_active_sessions(app);
     effects.push(Effect::Quit);

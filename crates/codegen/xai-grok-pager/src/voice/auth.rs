@@ -10,8 +10,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::voice_rt::{SharedVoiceAuth, VoiceAuthProvider};
 use xai_grok_tools::types::SharedApiKeyProvider;
-use xai_grok_voice::{SharedVoiceAuth, VoiceAuthProvider};
 
 /// Adapts the shell's `ApiKeyProvider` onto [`VoiceAuthProvider`].
 ///

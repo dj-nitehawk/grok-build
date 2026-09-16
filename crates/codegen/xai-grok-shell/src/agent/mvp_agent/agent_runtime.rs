@@ -67,7 +67,10 @@ impl AgentRuntime for MvpAgent {
         &self,
         session_id: Option<&acp::SessionId>,
         cwd: &Path,
-    ) -> Option<(Arc<xai_codebase_graph::IndexManagerHandle>, bool)> {
+    ) -> Option<(
+        xai_grok_workspace::file_system::CodebaseIndexHandle,
+        bool,
+    )> {
         self.start_codebase_index_for_code_nav(session_id, cwd)
     }
 

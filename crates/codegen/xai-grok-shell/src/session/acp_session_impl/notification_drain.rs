@@ -187,6 +187,7 @@ impl SessionActor {
 
         // A `/memory` toggle during the previous turn could not swap the prompt; do it before this
         // turn samples. Takes `state` briefly on its own, so it stays outside the lock below.
+        #[cfg(feature = "memory")]
         if self
             .memory
             .prompt_sync_pending

@@ -77,7 +77,8 @@ fn open_voice_tier_upsell(app: &mut AppView) -> Vec<Effect> {
 /// A build without audio capture (only the Bazel test build; every shipped binary compiles `audio` in)
 /// The matching Ctrl+Space release (see [`dispatch_voice_stop`]) then ends *this* session and only this one.
 pub(super) fn dispatch_enable_voice_mode(app: &mut AppView, from_hold: bool) -> Vec<Effect> {
-    if !app.voice_mode_enabled {
+    // Remote-flag gate only. Silent when unavailable.
+    if !app.voice_mode_enabled || !crate::voice_rt::AUDIO_SUPPORTED {
         return vec![];
     }
     // Tier gate: free / X Basic personal users can't use voice (the server zero-limits these tiers)
@@ -90,7 +91,7 @@ pub(super) fn dispatch_enable_voice_mode(app: &mut AppView, from_hold: bool) -> 
     // Deliberately before the audio gate: the audio-less Bazel build is the only CI that runs
     // these dispatch tests, and it must still cover leave-home (Always isolation) from voice.
     let effects = super::session::lifecycle::leave_welcome_for_session(app);
-    if !xai_grok_voice::AUDIO_SUPPORTED {
+    if !crate::voice_rt::AUDIO_SUPPORTED {
         return effects;
     }
 

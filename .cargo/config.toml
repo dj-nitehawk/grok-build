@@ -65,6 +65,13 @@ rustflags = ["-C", "force-unwind-tables=yes", "-C", "target-feature=+crt-static"
 rustflags = ["-C", "force-unwind-tables=yes", "-C", "target-feature=+crt-static"]
 
 
+# Fork slim build entry (dev). Prefer this over a full default feature cascade so
+# upstream default tables can evolve with less permanent Cargo.toml conflict.
+# As optional capability features land, this alias stays the day-to-day slim path.
+[alias]
+grok-slim = "build -p xai-grok-pager-bin --profile release-dist --no-default-features"
+grok-slim-check = "check -p xai-grok-pager-bin --no-default-features"
+
 # jemalloc page size for Apple Silicon (macOS aarch64 uses 16KB pages = 2^14).
 # This target-prefixed env var is consumed by tikv-jemalloc-sys's build.rs
 # and only takes effect when TARGET=aarch64-apple-darwin. Other targets
