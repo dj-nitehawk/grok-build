@@ -14,6 +14,8 @@ List all available models:
 grok models
 ```
 
+`gpt-6-astra` (GPT-6 Astra) and `gpt-5.6-sol` (GPT-5.6 Sol) are also listed. They are billed to a ChatGPT Plus/Pro subscription via an unofficial Codex backend, not `OPENAI_API_KEY`. Sign in with `grok chatgpt-login` first. Details: [ChatGPT Plus/Pro](chatgpt.md).
+
 ---
 
 ## Selecting a Model

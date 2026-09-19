@@ -774,7 +774,7 @@ async fn read_parent_sampling_config(
                 &cfg.api_backend,
                 &cfg.base_url,
             );
-            let inherited = xai_grok_sampler::SamplerConfig {
+            let mut inherited = xai_grok_sampler::SamplerConfig {
                 api_key: creds.api_key,
                 base_url: cfg.base_url,
                 mtls_cert_dir: cfg.mtls_cert_dir,
@@ -820,7 +820,11 @@ async fn read_parent_sampling_config(
                     .model_compaction_at_tokens(catalog_model_id.0.as_ref()),
                 doom_loop_recovery: ctx.sampling_config.doom_loop_recovery,
                 header_injector: ctx.sampling_config.header_injector.clone(),
+                include_encrypted_reasoning:
+                    crate::agent::chatgpt::extras::include_encrypted_reasoning(&inherited_base_url),
+                responses_system_as_instructions: false,
             };
+            crate::agent::chatgpt::stamp_sampler_config_from_url(&mut inherited);
             let model_id = ctx.model_id.clone();
             let global_model_id = ctx.models_manager.current_model_id();
             xai_grok_telemetry::unified_log::debug(
@@ -874,6 +878,7 @@ async fn read_parent_sampling_config(
     fallback.compaction_at_tokens = ctx
         .models_manager
         .model_compaction_at_tokens(catalog_model_id.0.as_ref());
+    crate::agent::chatgpt::stamp_sampler_config_from_url(&mut fallback);
     (fallback, ctx.model_id.clone())
 }
 /// `AuthType` for a subagent: BYOK gets `ApiKey` (don't overwrite the BYOK key).

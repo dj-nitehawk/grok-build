@@ -86,6 +86,27 @@ pub(crate) fn effective_suggest_model(
     }
 }
 
+/// Keep the routed model, transport, and credentials together, including on fallback.
+pub(crate) fn suggest_sampling_config(
+    active: xai_grok_sampler::SamplerConfig,
+    routed: Option<xai_grok_sampler::SamplerConfig>,
+    fallback_to_session: bool,
+) -> Option<xai_grok_sampler::SamplerConfig> {
+    match routed {
+        Some(mut config) => {
+            crate::agent::config::stamp_session_local_sampler_fields(
+                &mut config,
+                &active,
+                active.client_identifier.clone(),
+                active.max_retries,
+            );
+            Some(config)
+        }
+        None if fallback_to_session => Some(active),
+        None => None,
+    }
+}
+
 /// Total character budget for the compact transcript (~6k tokens at the bytes/4 estimate).
 /// It keeps the per-turn cost of the feature trivial even on long sessions.
 const TRANSCRIPT_BUDGET_CHARS: usize = 24_000;
@@ -244,6 +265,100 @@ mod tests {
     use crate::config::PromptSuggestModelPin as Pin;
 
     // -- effective_suggest_model ---------------------------------------------
+
+    #[test]
+    fn custom_auxiliary_route_is_not_replaced_by_xai_fallback() {
+        use crate::agent::config::{ModelEntry, resolve_aux_model_sampling_config};
+
+        let endpoints = Default::default();
+        let mut entry = ModelEntry::fallback("custom-suggest", &endpoints);
+        entry.info.base_url = "https://custom.example/v1".to_owned();
+        entry.info.model = "provider-model".to_owned();
+        entry.api_key = None;
+        entry.env_key = None;
+        entry.auth_provider = None;
+        entry.api_base_url = None;
+        let models = [("custom-suggest".to_owned(), entry)].into();
+        let config = resolve_aux_model_sampling_config(
+            "custom-suggest",
+            &models,
+            &endpoints,
+            None,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(config.base_url, "https://custom.example/v1");
+        assert_eq!(config.model, "provider-model");
+    }
+
+    #[test]
+    fn suggestion_routing_preserves_the_complete_target_config() {
+        use xai_grok_sampler::SamplerConfig;
+        use xai_grok_sampling_types::ApiBackend;
+
+        for (active_url, target_url, target_model) in [
+            (
+                "https://chatgpt.com/backend-api/codex",
+                "https://api.x.ai/v1",
+                "grok-4.6",
+            ),
+            (
+                "https://api.x.ai/v1",
+                "https://chatgpt.com/backend-api/codex",
+                "gpt-6-astra",
+            ),
+            (
+                "https://chatgpt.com/backend-api/codex",
+                "https://custom.example/v1",
+                "provider-model",
+            ),
+        ] {
+            let active = SamplerConfig {
+                base_url: active_url.to_owned(),
+                api_key: Some("active-key".to_owned()),
+                client_identifier: Some("session-client".to_owned()),
+                ..Default::default()
+            };
+            let routed = SamplerConfig {
+                base_url: target_url.to_owned(),
+                model: target_model.to_owned(),
+                api_key: Some("target-key".to_owned()),
+                api_backend: ApiBackend::Responses,
+                extra_headers: [("target-header".to_owned(), "value".to_owned())].into(),
+                query_params: [("target-param".to_owned(), "value".to_owned())].into(),
+                context_window: 100_000,
+                responses_system_as_instructions: true,
+                ..Default::default()
+            };
+            let config = suggest_sampling_config(active, Some(routed), false).unwrap();
+            assert_eq!(config.base_url, target_url);
+            assert_eq!(config.model, target_model);
+            assert_eq!(config.api_key.as_deref(), Some("target-key"));
+            assert_eq!(config.api_backend, ApiBackend::Responses);
+            assert_eq!(config.extra_headers["target-header"], "value");
+            assert_eq!(config.query_params["target-param"], "value");
+            assert_eq!(config.context_window, 100_000);
+            assert!(config.responses_system_as_instructions);
+            assert_eq!(config.client_identifier.as_deref(), Some("session-client"));
+        }
+    }
+
+    #[test]
+    fn missing_default_route_keeps_session_model_but_missing_override_skips() {
+        let active = xai_grok_sampler::SamplerConfig {
+            base_url: "https://chatgpt.com/backend-api/codex".to_owned(),
+            model: "gpt-6-astra".to_owned(),
+            api_key: Some("session-key".to_owned()),
+            ..Default::default()
+        };
+        assert!(suggest_sampling_config(active.clone(), None, false).is_none());
+        let fallback = suggest_sampling_config(active.clone(), None, true).unwrap();
+        assert_eq!(fallback.model, active.model);
+        assert_eq!(fallback.base_url, active.base_url);
+        assert_eq!(fallback.api_key, active.api_key);
+    }
 
     #[test]
     fn effective_model_explicit_pin_beats_client_hint_when_reasoning_is_off() {

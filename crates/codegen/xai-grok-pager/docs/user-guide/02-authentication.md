@@ -41,6 +41,19 @@ To sign out, run `grok logout`. It takes no flags and clears your cached credent
 
 ---
 
+## ChatGPT Plus/Pro (Codex)
+
+A separate login bills GPT-6 Astra and GPT-5.6 Sol turns to a ChatGPT subscription. This is unofficial (Codex CLI OAuth + `chatgpt.com` backend). See [ChatGPT Plus/Pro](chatgpt.md).
+
+```bash
+grok chatgpt-login
+grok -m gpt-5.6-sol -p "reply with pong"
+```
+
+Grok credentials stay in `~/.grok/auth.json`. ChatGPT tokens are `~/.grok/chatgpt-auth.json`. `grok logout` does not clear ChatGPT tokens; use `grok chatgpt-logout`.
+
+---
+
 ## API Key
 
 For CI/CD, automation, or environments without browser access, use an API key from [console.x.ai](https://console.x.ai):

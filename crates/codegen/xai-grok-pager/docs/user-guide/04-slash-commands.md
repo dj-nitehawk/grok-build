@@ -422,6 +422,10 @@ Create, edit, and delete personas. A subagent can apply a persona to shape how i
 
 Log in or re-authenticate without leaving the session.
 
+### `/chatgpt-login`
+
+Prints how to sign in with ChatGPT Plus/Pro for `gpt-6-astra` and `gpt-5.6-sol`. The OAuth callback binds `localhost:1455`, so the flow runs in a terminal (`grok chatgpt-login`, or `--device` if that port is busy). See [ChatGPT Plus/Pro](chatgpt.md).
+
 ### `/logout`
 
 Log out and return to the login screen.

@@ -4,6 +4,7 @@
 mod handoff;
 mod helpers;
 mod purge;
+mod chatgpt_quota;
 mod session_list;
 use super::actions;
 use super::worktree_session;
@@ -5014,6 +5015,7 @@ pub(crate) fn execute(
                     }
                 });
         }
+        Effect::FetchChatgptQuota { request } => chatgpt_quota::spawn(tasks, acp_tx, request),
         Effect::FetchBilling { agent_id, silent, nonce } => {
             let tx = acp_tx.clone();
             tasks

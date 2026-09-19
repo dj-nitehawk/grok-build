@@ -5123,6 +5123,19 @@
 
     // ── Bottom info line (centered model · context · flags) ─────────
 
+    #[test]
+    fn quota_info_line_clips_at_narrow_widths() {
+        let flags = [PromptFlag { text: "5h: 10% (reset: 2h) | 7d: 25% (reset: 4d)", color: None, bold: false }];
+        let info = PromptInfo { model_name: "astra", flags: &flags, ..Default::default() };
+        for width in [0, 1, 2, 8, 20, 40, 100] {
+            let buffer = draw_info_line(width, &info);
+            assert_eq!(buffer.area().width, width);
+            if width == 100 {
+                assert!(buf_text_at(&buffer, 0, width, 0).contains(flags[0].text));
+            }
+        }
+    }
+
     fn draw_info_line(width: u16, info: &PromptInfo<'_>) -> Buffer {
         let pw = PromptWidget::new();
         let area = Rect::new(0, 0, width, 1);

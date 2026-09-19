@@ -2183,6 +2183,10 @@ pub enum Effect {
         session_id: acp::SessionId,
         target_prompt_index: usize,
     },
+    /// Fetch isolated ChatGPT subscription quota for a captured identity.
+    FetchChatgptQuota {
+        request: super::provider_quota::Request,
+    },
     /// Fetch billing/credit usage from the agent's `x.ai/billing` extension.
     /// When `silent` is true the result updates `credit_balance` without pushing a system message into scrollback.
     /// The silent form is used for automatic refreshes on session init and after each turn.
@@ -3161,6 +3165,11 @@ pub enum TaskResult {
     RewindExecuteFailed {
         agent_id: AgentId,
         error: String,
+    },
+    /// ChatGPT quota completion scoped to its originating request.
+    ChatgptQuotaFetched {
+        request: super::provider_quota::Request,
+        result: Result<xai_grok_shell::agent::chatgpt::quota::Quota, String>,
     },
     /// Billing data fetched from the agent.
     BillingFetched {
