@@ -54,7 +54,7 @@ Under `workspace`, `read-only`, and `strict` (and custom profiles that extend th
 - Absolute targets listed in `hooks-paths` (relative lines are ignored; missing targets refuse sandbox start)
 - `~/.grok/config.toml`, `~/.grok/trusted_folders.toml`, `~/.grok/managed_config.toml`, `~/.grok/requirements.toml`, `~/.grok/sandbox.toml` (settings, folder trust, managed policy, requirements, and sandbox profiles)
 
-Because these files are read-only under these profiles, a change that would be saved to them applies to the current session only. Accepting a folder-trust prompt, switching the model with `/model`, and changing the permission mode (`/auto` or Shift+Tab) take effect for the session but are not saved. To save folder trust, run `grok --trust` in the directory before starting the sandbox. To change the default model or permission mode, edit `~/.grok/config.toml` directly.
+The kernel still write-denies these files for the agent: tools, bash, and other child processes cannot change them. User-initiated settings that persist to `~/.grok/config.toml` (the settings modal, `/model`, permission-mode toggles, and similar) go through a privileged writer started before the sandbox is applied, so they save normally. Folder trust (`trusted_folders.toml`) is still session-only under these profiles; run `grok --trust` in the directory before starting the sandbox to save it.
 
 On first launch under these profiles, Grok creates a real empty `hooks/` directory and empty `hooks-paths` file when they are missing (never symlinks or wrong types). Claude/Cursor global settings are **not** covered by this write-deny; discovery of those vendors remains separately gated by compatibility settings.
 
