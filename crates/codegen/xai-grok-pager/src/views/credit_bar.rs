@@ -94,6 +94,76 @@ pub fn format_quota_chip_at(balance: &CreditBalance, now: chrono::DateTime<chron
     }
 }
 
+pub(crate) fn format_chatgpt_quota(
+    quota: Option<&xai_grok_shell::agent::chatgpt::quota::Quota>,
+    now: i64,
+) -> String {
+    let windows = quota.and_then(|q| q.rate_limit.as_ref());
+    let parts: Vec<(String, String)> = windows
+        .into_iter()
+        .flat_map(|limits| [&limits.primary_window, &limits.secondary_window])
+        .flatten()
+        .filter_map(|window| {
+            let used = window
+                .used_percent
+                .filter(|used| used.is_finite() && *used >= 0.0)?;
+            let seconds = window.limit_window_seconds.filter(|seconds| *seconds > 0)?;
+            let duration = if seconds % 86400 == 0 {
+                format!("{}d", seconds / 86400)
+            } else if seconds % 3600 == 0 {
+                format!("{}h", seconds / 3600)
+            } else if seconds % 60 == 0 {
+                format!("{}m", seconds / 60)
+            } else {
+                format!("{seconds}s")
+            };
+            let reset = window
+                .reset_at
+                .map(|at| {
+                    if at <= now {
+                        return " (reset due; refresh quota)".into();
+                    }
+                    format!(
+                        " (reset: {})",
+                        format_reset_remaining(at.saturating_sub(now).max(0) as u64)
+                    )
+                })
+                .unwrap_or_default();
+            Some((duration, format!("{used:.0}%{reset}")))
+        })
+        .collect();
+    match parts.as_slice() {
+        [] => "ChatGPT quota unavailable".into(),
+        [(_, usage)] => usage.clone(),
+        _ => parts
+            .iter()
+            .map(|(duration, usage)| format!("{duration}: {usage}"))
+            .collect::<Vec<_>>()
+            .join(" | "),
+    }
+}
+
+pub(crate) fn provider_border_chips(
+    mut chips: PromptBorderChips,
+    models: &crate::acp::model_state::ModelState,
+    state: Option<&crate::app::provider_quota::State>,
+    chat_kind: bool,
+) -> PromptBorderChips {
+    use crate::app::provider_quota::{Provider, provider};
+    match provider(models) {
+        Provider::Grok => {}
+        Provider::Chatgpt if !chat_kind => {
+            chips.quota = Some(
+                state
+                    .map(|state| state.chip())
+                    .unwrap_or_else(|| "ChatGPT quota unavailable".into()),
+            )
+        }
+        _ => chips.quota = None,
+    }
+    chips
+}
+
 /// Prompt info-line quota chip text.
 ///
 /// Hidden when the billing surface is off or this is a gateway chat session.
@@ -448,6 +518,37 @@ pub fn credit_bar_line_for_session(
     Some(Line::from(Span::styled(text, style)))
 }
 
+#[cfg(test)]
+mod chatgpt_quota_tests {
+    use super::*;
+    #[test]
+    fn quota_windows_absence_and_reset_countdowns() {
+        let quota = serde_json::from_value(serde_json::json!({"rate_limit": {
+            "primary_window": {"used_percent":10, "limit_window_seconds":18000, "reset_at":7200},
+            "secondary_window": {"used_percent":25, "limit_window_seconds":604800, "reset_at":345600}
+        }})).unwrap();
+        assert_eq!(
+            format_chatgpt_quota(Some(&quota), 0),
+            "5h: 10% (reset: 2h) | 7d: 25% (reset: 4d)"
+        );
+        assert_eq!(format_chatgpt_quota(None, 0), "ChatGPT quota unavailable");
+        let partial = serde_json::from_value(serde_json::json!({"rate_limit": {"primary_window": {"limit_window_seconds":18000}, "secondary_window": {"used_percent":25,"limit_window_seconds":604800}}})).unwrap();
+        assert_eq!(format_chatgpt_quota(Some(&partial), 0), "25%");
+        for window in ["primary_window", "secondary_window"] {
+            let single = serde_json::from_value(serde_json::json!({"rate_limit": {
+                (window): {"used_percent":25, "limit_window_seconds":604800, "reset_at":345600}
+            }}))
+            .unwrap();
+            assert_eq!(format_chatgpt_quota(Some(&single), 0), "25% (reset: 4d)");
+        }
+        assert_eq!(
+            format_chatgpt_quota(Some(&quota), 999999),
+            "5h: 10% (reset due; refresh quota) | 7d: 25% (reset due; refresh quota)"
+        );
+        assert!(format_chatgpt_quota(Some(&quota), 7199).contains("reset: <1m"));
+        assert!(format_chatgpt_quota(Some(&quota), 7200).contains("reset due; refresh quota"));
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -304,6 +304,7 @@ fn test_app() -> AppView {
         auto_topup: None,
         billing_fetched_at: None,
         billing_fetch_in_flight: false,
+        chatgpt_quota: Default::default(),
         billing_poll_wanted: false,
         leader_roster: Vec::new(),
         dashboard_local_sessions: Vec::new(),

@@ -89,6 +89,17 @@ impl GrokRequestHeaders<'_> {
     }
 }
 
+fn is_response_keepalive(event: &str, data: &str) -> bool {
+    #[derive(serde::Deserialize)]
+    struct EventType<'a> {
+        #[serde(rename = "type")]
+        kind: &'a str,
+    }
+
+    event == "keepalive"
+        || serde_json::from_str::<EventType<'_>>(data).is_ok_and(|event| event.kind == "keepalive")
+}
+
 /// Deserialize a Responses SSE event, stripping unknown tools and rewriting terminal `total_tokens` from `context_details`.
 pub(crate) fn deserialize_response_event(data: &str) -> Result<rs::ResponseStreamEvent> {
     let mut event = match serde_json::from_str::<rs::ResponseStreamEvent>(data) {
@@ -337,7 +348,7 @@ impl std::fmt::Debug for SamplingClient {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct ClientDefaults {
     model: String,
     max_completion_tokens: Option<u32>,
@@ -350,6 +361,8 @@ struct ClientDefaults {
     reasoning_summary: Option<xai_grok_sampling_types::ReasoningSummary>,
     extra_response_includes: Vec<String>,
     doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
+    include_encrypted_reasoning: bool,
+    responses_system_as_instructions: bool,
 }
 
 /// Endpoint URL builder, resolved once at client construction so each request only appends its path.
@@ -657,6 +670,8 @@ impl SamplingClient {
             reasoning_summary: config.reasoning_summary,
             extra_response_includes: config.extra_response_includes,
             doom_loop_recovery: config.doom_loop_recovery,
+            include_encrypted_reasoning: config.include_encrypted_reasoning,
+            responses_system_as_instructions: config.responses_system_as_instructions,
         };
 
         let endpoint = EndpointTemplate::new(&config.base_url, &config.query_params);
@@ -1264,10 +1279,18 @@ impl SamplingClient {
             }
         }
 
-        // Include encrypted reasoning content if not specified
-        let includes = request.inner.include.get_or_insert_with(Vec::new);
-        if !includes.contains(&rs::IncludeEnum::ReasoningEncryptedContent) {
-            includes.push(rs::IncludeEnum::ReasoningEncryptedContent);
+        // Include encrypted reasoning content if not specified. Third-party / Codex
+        // hosts 400 on this include; the shell clears `include_encrypted_reasoning`.
+        if self.defaults.include_encrypted_reasoning {
+            let includes = request.inner.include.get_or_insert_with(Vec::new);
+            if !includes.contains(&rs::IncludeEnum::ReasoningEncryptedContent) {
+                includes.push(rs::IncludeEnum::ReasoningEncryptedContent);
+            }
+        }
+
+        // Codex rejects `role: system` in input; the shell stamps this for that backend.
+        if self.defaults.responses_system_as_instructions {
+            xai_grok_sampling_types::lift_system_input_to_instructions(&mut request.inner);
         }
 
         Ok(())
@@ -1561,7 +1584,7 @@ impl SamplingClient {
 
         let doom_loop_for_stream = doom_loop.clone();
 
-        // The scan item is an `Option`: `Some(None)` skips an absorbed doom-loop event without terminating the stream (`filter_map` below)
+        // `Some(None)` skips keepalive and absorbed doom-loop events without ending the stream (`filter_map` below).
         // An outer `None` still ends the stream
         let events = event_stream
             .scan(false, move |had_transport_error, event_res| {
@@ -1589,7 +1612,7 @@ impl SamplingClient {
                             Some(collector) => collector.absorb(&event.event, data),
                             None => is_check_event(&event.event, data),
                         };
-                        if swallow {
+                        if swallow || is_response_keepalive(&event.event, data) {
                             Some(None)
                         } else if let Some(stream_error) = try_parse_stream_error(data) {
                             Some(Some(Err(stream_error)))
@@ -2478,6 +2501,68 @@ mod tests {
         let body = body_rx.await.unwrap();
         server.abort();
         serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn responses_stream_skips_keepalive_and_preserves_errors() {
+        let completed = format!(
+            "data: {{\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{EMPTY_RESPONSE_JSON}}}\n\n"
+        );
+        let body = format!(
+            "data: {{\"type\":\"keepalive\"}}\n\n\
+             data: {{\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hello\",\"logprobs\":[]}}\n\n\
+             event: keepalive\ndata: {{}}\n\n\
+             data: {{\"type\":\"keepalive\",\"timestamp\":123}}\n\n\
+             {completed}\
+             data: {{\"type\":\"unknown_event\"}}\n\n\
+             data: {{\"type\":\"response.output_text.delta\"}}\n\n\
+             data: not-json\n\n\
+             data: [DONE]\n\n"
+        );
+        let app = Router::new().route(
+            "/v1/responses",
+            post(move || {
+                let body = body.clone();
+                async move {
+                    axum::response::Response::builder()
+                        .header("content-type", "text/event-stream")
+                        .body(axum::body::Body::from(body))
+                        .unwrap()
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        let client = SamplingClient::new(SamplerConfig {
+            base_url: format!("http://{addr}/v1"),
+            api_backend: ApiBackend::Responses,
+            ..minimal_config()
+        })
+        .unwrap();
+        let (stream, _, _) = client
+            .create_response_stream(CreateResponseWrapper::new(rs::CreateResponse {
+                input: rs::InputParam::Text("hi".to_owned()),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let events: Vec<_> = stream.collect().await;
+        server.abort();
+
+        assert_eq!(events.len(), 5, "{events:?}");
+        assert!(
+            matches!(&events[0], Ok(rs::ResponseStreamEvent::ResponseOutputTextDelta(delta)) if delta.delta == "hello")
+        );
+        assert!(matches!(
+            &events[1],
+            Ok(rs::ResponseStreamEvent::ResponseCompleted(_))
+        ));
+        for event in &events[2..] {
+            assert!(matches!(event, Err(SamplingError::Serialization(_))));
+        }
     }
 
     #[tokio::test]
@@ -3546,5 +3631,58 @@ mod tests {
         let mut request = CreateResponseWrapper::new(rs::CreateResponse::default());
         without.apply_response_defaults(&mut request).unwrap();
         assert_eq!(request.inner.reasoning, None);
+    }
+
+    fn request_with_system_and_user() -> CreateResponseWrapper {
+        let req = xai_grok_sampling_types::ConversationRequest::from_items(vec![
+            xai_grok_sampling_types::ConversationItem::system("you are grok"),
+            xai_grok_sampling_types::ConversationItem::user("hello"),
+        ]);
+        CreateResponseWrapper::new((&req).into())
+    }
+
+    #[test]
+    fn codex_flag_lifts_system_messages_into_instructions() {
+        let client = SamplingClient::new(SamplerConfig {
+            responses_system_as_instructions: true,
+            include_encrypted_reasoning: false,
+            ..minimal_config()
+        })
+        .expect("client should construct");
+        let mut request = request_with_system_and_user();
+        client.apply_response_defaults(&mut request).unwrap();
+        assert_eq!(request.inner.instructions.as_deref(), Some("you are grok"));
+        let body = serde_json::to_value(&request.inner).unwrap();
+        let input = body.get("input").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(input.len(), 1);
+        assert_eq!(
+            input
+                .first()
+                .and_then(|item| item.get("role"))
+                .and_then(|r| r.as_str()),
+            Some("user")
+        );
+        assert!(
+            input
+                .iter()
+                .all(|item| item.get("role").and_then(|r| r.as_str()) != Some("system"))
+        );
+    }
+
+    #[test]
+    fn first_party_keeps_system_messages_in_input() {
+        let client = SamplingClient::new(minimal_config()).expect("client should construct");
+        let mut request = request_with_system_and_user();
+        client.apply_response_defaults(&mut request).unwrap();
+        assert!(request.inner.instructions.is_none());
+        let body = serde_json::to_value(&request.inner).unwrap();
+        let input = body.get("input").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(
+            input
+                .first()
+                .and_then(|item| item.get("role"))
+                .and_then(|r| r.as_str()),
+            Some("system")
+        );
     }
 }

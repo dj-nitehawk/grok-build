@@ -153,6 +153,7 @@ pub(in crate::app::dispatch) fn confirmed_quit(app: &mut AppView) -> Vec<Effect>
     effects
 }
 pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
+    app.chatgpt_quota.sync_authentication(false);
     app.reconcile_foreign_resume_launch();
     let effects = match action {
         Action::Quit | Action::QuitConfirmed => confirmed_quit(app),

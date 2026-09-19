@@ -118,6 +118,20 @@ pub struct SamplerConfig {
     /// Per-request header injector (e.g. OTel traceparent). Called in `post()`.
     #[serde(skip)]
     pub header_injector: Option<SharedHeaderInjector>,
+
+    /// When true (default), Responses requests include `reasoning.encrypted_content`.
+    /// The shell disables this for Codex and preserves configured custom-provider capabilities.
+    #[serde(default = "default_include_encrypted_reasoning")]
+    pub include_encrypted_reasoning: bool,
+
+    /// When true, Responses `role: system` input items are lifted into the top-level
+    /// `instructions` field. Codex 400s on system messages; first-party xAI keeps them in input.
+    #[serde(default)]
+    pub responses_system_as_instructions: bool,
+}
+
+fn default_include_encrypted_reasoning() -> bool {
+    true
 }
 
 impl Default for SamplerConfig {
@@ -159,6 +173,8 @@ impl Default for SamplerConfig {
             compaction_at_tokens: None,
             doom_loop_recovery: None,
             header_injector: None,
+            include_encrypted_reasoning: true,
+            responses_system_as_instructions: false,
         }
     }
 }
@@ -166,6 +182,11 @@ impl Default for SamplerConfig {
 /// Cheap sync read of the current bearer for [`SamplerConfig::bearer_resolver`].
 pub trait BearerResolver: Send + Sync + std::fmt::Debug {
     fn current_bearer(&self) -> Option<String>;
+
+    /// Identifies a host auth resolver for idempotent credential stamping.
+    fn auth_provider_name(&self) -> Option<&'static str> {
+        None
+    }
 
     /// Awaited by the client right before it stamps a request; [`Self::current_bearer`] is read afterwards.
     /// A resolver that can renew its bearer does so here when the cached one would not survive the send, so the request never leaves with no credential.
@@ -182,6 +203,11 @@ pub type SharedBearerResolver = std::sync::Arc<dyn BearerResolver>;
 /// Host trace hooks for the per-attempt HTTP span; the sampler has no OpenTelemetry dependency.
 pub trait HeaderInjector: Send + Sync + std::fmt::Debug {
     fn inject(&self, headers: &mut reqwest::header::HeaderMap);
+
+    /// Identifies an auth wrapper so hosts can stamp it without nesting duplicates.
+    fn auth_provider_name(&self) -> Option<&'static str> {
+        None
+    }
 
     /// Runs right after each streaming HTTP span is created and before it has children.
     /// Default: no-op.
