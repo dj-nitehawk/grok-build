@@ -1652,6 +1652,13 @@ fn auth_scheme_defaults_to_bearer_when_not_set_in_config() {
 fn has_own_credentials_guards_session_vs_external_key() {
     let endpoints = EndpointsConfig::default();
     for (model_id, entry) in default_model_entries(&endpoints) {
+        if crate::agent::chatgpt::catalog_entries().contains_key(&model_id) {
+            assert!(
+                entry.has_own_credentials(),
+                "{model_id}: Codex catalog must declare own credentials so the grok session is never sent to chatgpt.com"
+            );
+            continue;
+        }
         assert!(
             !entry.has_own_credentials(),
             "{model_id}: Default model must not claim own credentials"
@@ -7859,8 +7866,11 @@ fn resolve_model_list_prefetch_visibility_matches_auth_and_server_list() {
         .values()
         .filter(|e| e.visible_for_auth(false))
         .collect();
-    assert_eq!(sess.len(), 1);
-    assert_eq!(api.len(), 1);
+    assert!(resolved.contains_key(dm));
+    assert!(resolved.contains_key(crate::agent::chatgpt::MODEL_ID));
+    assert!(resolved.contains_key(crate::agent::chatgpt::SOL_MODEL_ID));
+    assert_eq!(sess.len(), 3);
+    assert_eq!(api.len(), 3);
 }
 #[test]
 fn resolve_model_list_keeps_prefetch_only_entries_and_prunes_defaults() {

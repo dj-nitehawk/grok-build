@@ -733,7 +733,9 @@ impl SessionActor {
             &cfg.base_url,
         );
         let request_compression = crate::util::config::request_compression_for_url(&cfg.base_url);
-        SamplingConfig {
+        let include_encrypted_reasoning =
+            crate::agent::chatgpt::extras::include_encrypted_reasoning(&cfg.base_url);
+        let mut config = SamplingConfig {
             api_key,
             base_url: cfg.base_url,
             mtls_cert_dir: cfg.mtls_cert_dir,
@@ -787,7 +789,11 @@ impl SessionActor {
             // The sampler sends the opt-in header itself when this is set.
             doom_loop_recovery: self.doom_loop_recovery,
             header_injector: Some(std::sync::Arc::new(TraceContextInjector)),
-        }
+            include_encrypted_reasoning,
+            responses_system_as_instructions: false,
+        };
+        crate::agent::chatgpt::stamp_sampler_config_from_url(&mut config);
+        config
     }
 
     /// Install the auto-mode permission classifier with a live LLM side-query.

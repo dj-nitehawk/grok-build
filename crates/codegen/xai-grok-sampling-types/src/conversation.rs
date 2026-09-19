@@ -10,7 +10,8 @@ mod responses;
 pub use chat_completions::{conversation_item_to_chat_message, conversation_to_chat_messages};
 pub use messages::build_messages_request;
 pub use responses::{
-    extra_tool_entries, patch_reasoning_text_types, response_to_conversation_items,
+    extra_tool_entries, lift_system_input_to_instructions, patch_reasoning_text_types,
+    response_to_conversation_items,
 };
 
 use std::sync::Arc;
@@ -1474,6 +1475,56 @@ pub fn inject_streaming_reasoning_fallback(items: &mut Vec<ConversationItem>, te
         pos,
         ConversationItem::Reasoning(synthesized_reasoning_item(text)),
     );
+}
+
+/// Splice streamed `response.output_text.delta` text into the trailing Assistant when the
+/// completed Responses snapshot omitted message text.
+///
+/// Codex (`store: false`) can emit deltas the UI already showed, then `response.completed`
+/// with an empty `output` array. Without this splice, `empty_reason` retries and the TUI
+/// concatenates the same greeting. Leave non-empty snapshot text untouched.
+pub fn inject_streaming_text_fallback(items: &mut [ConversationItem], text: String) {
+    if text.is_empty() {
+        return;
+    }
+    let Some(ConversationItem::Assistant(assistant)) = items
+        .iter_mut()
+        .rev()
+        .find(|item| matches!(item, ConversationItem::Assistant(_)))
+    else {
+        return;
+    };
+    if !assistant.content.is_empty() {
+        return;
+    }
+    assistant.content = Arc::<str>::from(text);
+}
+
+/// Splice streamed function calls into the trailing Assistant when the completed
+/// Responses snapshot omitted them.
+///
+/// Codex (`store: false`) can emit `output_item.added` / argument deltas the UI
+/// already showed as `writing_tool_call`, then `response.completed` with an empty
+/// `output` array. Without this splice, `empty_reason` retries a real tool turn.
+/// Leave snapshot tool calls untouched.
+pub fn inject_streaming_tool_call_fallback(
+    items: &mut [ConversationItem],
+    tool_calls: Vec<ToolCall>,
+) {
+    if tool_calls.is_empty() {
+        return;
+    }
+    let Some(ConversationItem::Assistant(assistant)) = items
+        .iter_mut()
+        .rev()
+        .find(|item| matches!(item, ConversationItem::Assistant(_)))
+    else {
+        return;
+    };
+    if !assistant.tool_calls.is_empty() {
+        return;
+    }
+    assistant.tool_calls = tool_calls;
 }
 
 /// Reconstruct sibling `Reasoning` and `BackendToolCall` items from a legacy chat-history row's raw JSON.
@@ -4286,6 +4337,94 @@ mod tests {
             resp.empty_reason(),
             Some(crate::error::EmptyReason::NoVisibleContent)
         );
+    }
+
+    #[test]
+    fn inject_streaming_text_fallback_fills_empty_assistant() {
+        let mut items = vec![ConversationItem::assistant("")];
+        inject_streaming_text_fallback(&mut items, "Hey! What are we working on?".into());
+        match items.as_slice() {
+            [ConversationItem::Assistant(a)] => {
+                assert_eq!(a.content.as_ref(), "Hey! What are we working on?");
+            }
+            other => panic!("expected one assistant, got {other:?}"),
+        }
+        let resp = make_response(items.into_iter().next().unwrap());
+        assert!(resp.empty_reason().is_none());
+    }
+
+    #[test]
+    fn inject_streaming_text_fallback_leaves_snapshot_text() {
+        let mut items = vec![ConversationItem::assistant("from snapshot")];
+        inject_streaming_text_fallback(&mut items, "from deltas".into());
+        match items.as_slice() {
+            [ConversationItem::Assistant(a)] => {
+                assert_eq!(a.content.as_ref(), "from snapshot");
+            }
+            other => panic!("expected one assistant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inject_streaming_text_fallback_empty_is_noop() {
+        let mut items = vec![ConversationItem::assistant("")];
+        inject_streaming_text_fallback(&mut items, String::new());
+        match items.as_slice() {
+            [ConversationItem::Assistant(a)] => assert!(a.content.is_empty()),
+            other => panic!("expected one assistant, got {other:?}"),
+        }
+    }
+
+    fn sample_tool_call() -> ToolCall {
+        ToolCall {
+            id: "call_xyz".into(),
+            name: "read_file".into(),
+            arguments: "{\"target_file\":\"foo.rs\"}".into(),
+        }
+    }
+
+    #[test]
+    fn inject_streaming_tool_call_fallback_fills_empty_assistant() {
+        let mut items = vec![ConversationItem::assistant("")];
+        inject_streaming_tool_call_fallback(&mut items, vec![sample_tool_call()]);
+        match items.as_slice() {
+            [ConversationItem::Assistant(a)] => {
+                assert_eq!(a.tool_calls.len(), 1);
+                assert_eq!(a.tool_calls[0].id.as_ref(), "call_xyz");
+                assert_eq!(a.tool_calls[0].name, "read_file");
+            }
+            other => panic!("expected one assistant, got {other:?}"),
+        }
+        let resp = make_response(items.into_iter().next().unwrap());
+        assert!(resp.empty_reason().is_none());
+    }
+
+    #[test]
+    fn inject_streaming_tool_call_fallback_leaves_snapshot_calls() {
+        let snapshot = ToolCall {
+            id: "from_snapshot".into(),
+            name: "bash".into(),
+            arguments: "{}".into(),
+        };
+        let mut items = vec![ConversationItem::assistant_tool_calls(vec![snapshot])];
+        inject_streaming_tool_call_fallback(&mut items, vec![sample_tool_call()]);
+        match items.as_slice() {
+            [ConversationItem::Assistant(a)] => {
+                assert_eq!(a.tool_calls.len(), 1);
+                assert_eq!(a.tool_calls[0].id.as_ref(), "from_snapshot");
+            }
+            other => panic!("expected one assistant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inject_streaming_tool_call_fallback_empty_is_noop() {
+        let mut items = vec![ConversationItem::assistant("")];
+        inject_streaming_tool_call_fallback(&mut items, Vec::new());
+        match items.as_slice() {
+            [ConversationItem::Assistant(a)] => assert!(a.tool_calls.is_empty()),
+            other => panic!("expected one assistant, got {other:?}"),
+        }
     }
 
     /// `LengthPolicy::verdict` is the single fail-vs-salvage gate shared by the actor and direct-collect paths; pin every cell.
