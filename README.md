@@ -31,8 +31,10 @@ sudo mv grok /usr/local/bin/   # or: mv grok ~/.local/bin/
 > **Platform:** CI currently publishes **linux/amd64** only. Other hosts: build from source below.
 > Official SpaceXAI installers (macOS / multi-platform) remain at [x.ai/cli](https://x.ai/cli); they do **not** include this fork's customizations.
 
-On first launch, authenticate as usual (browser login or API key). See the
+For Grok models, authenticate as usual (browser login or API key). See the
 [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
+For ChatGPT Plus/Pro, sign in separately with `grok chatgpt-login`; see
+[ChatGPT subscription support](#chatgpt-subscription-support).
 
 ---
 
@@ -43,6 +45,7 @@ On first launch, authenticate as usual (browser login or API key). See the
 | **Binary** | Full product matrix (voice, mermaid, PDF, cloud SDKs, telemetry export) | **Slim by default**: optional surfaces compile out; sandbox enforcement stays on |
 | **Startup** | Standard connect path | **Faster time-to-first-paint**: welcome paints before connect (input after backend ready); config reuse + nonblocking auth/prefetch |
 | **Agent prompts** | Upstream defaults | **Custom system prompts** tuned for careful, high-signal coding work |
+| **ChatGPT** | No fork Codex integration | **GPT-6 Astra via ChatGPT Plus/Pro**, using an unofficial Codex backend |
 | **Context** | Verbose parent `spawn_subagent` tool text | **Concise hybrid description** so subagent tools cost less context every turn |
 | **Sessions** | Fork copies full history | **`/handoff`** seeds a clean session with task-relevant notes only |
 | **Cleanup** | Manual session hygiene | **`/purge`** (and `grok sessions purge`) wipes local session history + logs |
@@ -71,6 +74,23 @@ cargo run -p xai-grok-pager-bin              # slim defaults
 cargo check -p xai-grok-pager-bin --features product-full   # full matrix when you need it
 cargo grok-slim                              # release-dist slim binary
 ```
+
+### ChatGPT subscription support
+
+Use **GPT-6 Astra** with a **ChatGPT Plus/Pro subscription**, separately from
+Grok authentication and OpenAI API-key billing:
+
+```sh
+grok chatgpt-login
+grok -m gpt-6-astra
+```
+
+This uses an **unofficial Codex backend**, not an officially supported OpenAI
+integration. OpenAI can change or disable the backend without notice.
+Grok models still use `grok login`; ChatGPT login does not replace it.
+
+See the [ChatGPT guide](crates/codegen/xai-grok-pager/docs/user-guide/chatgpt.md)
+for device login, model switching, reasoning effort, and sign-out.
 
 ### Agent behavior
 
@@ -103,11 +123,12 @@ Default remains discovery-only (`search_tool` / `use_tool`) for KV-cache stabili
 ### TUI & input
 
 - Custom **bottom border info line** (context + mode flags + quota chips; always-approve noise filtered).
-- **Alt+Q** refreshes Grok usage quota onto that border (1-minute cache; further presses reuse it).
+- **Alt+Q** refreshes subscription quota for the active Grok or ChatGPT/Codex model (successful results cached for 1 minute per provider).
 - **Ctrl+Shift+Z redo** fixed in the prompt textarea.
 - **Startup TTFP**: frozen welcome paints before connect so startup feels instant; input is live after the backend is ready.
 
 Chip order on the prompt bottom border: **context · modes · quota**.
+Grok quota example and states:
 
 ```text
   47K / 500K (9%)  ·  plan  ·  10% (reset: 4d5h)
@@ -122,7 +143,15 @@ Chip order on the prompt bottom border: **context · modes · quota**.
 | Cached balance | `10% (reset: 4d5h)`, or just `10%` if period end is unknown |
 | After cache (≤1 min) | Same chip; no network round-trip until it expires |
 
-Quota is on-demand in this fork (no background billing poll on every prompt). Press **Alt+Q** when you want a fresh reading.
+ChatGPT shows available usage windows, for example
+`5h: 10% (reset: 2h) | 7d: 25% (reset: 4d)`. A single usable window omits the
+window label; missing usable data shows `ChatGPT quota unavailable`.
+Switching models preserves each provider's cache without showing another
+provider's quota. Other providers and OpenAI API-key billing are unsupported.
+
+Quota is on-demand in this fork (no automatic polling). Press **Alt+Q** to
+refresh; a successful result is reused until its 1-minute cache expires.
+Repeated presses share an in-flight request, and failures can be retried immediately.
 
 ### Engineering on this tree
 
@@ -172,8 +201,9 @@ macOS and Linux are supported build hosts. Windows from this tree is best-effort
 | Upstream product page | [x.ai/cli](https://x.ai/cli) |
 | Fork ops / slim policy | [`.okf/`](.okf/) (agents & maintainers) |
 
-Useful guide pages for fork features: slash commands (`/handoff`, `/purge`),
-MCP servers (`promote_tools`), sessions, subagents.
+Useful guide pages for fork features: [ChatGPT Plus/Pro](crates/codegen/xai-grok-pager/docs/user-guide/chatgpt.md),
+slash commands (`/handoff`, `/purge`), MCP servers (`promote_tools`), sessions,
+subagents.
 
 ---
 
