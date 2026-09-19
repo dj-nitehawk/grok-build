@@ -50,17 +50,22 @@ use xai_grok_telemetry::process_info::{
     Entrypoint, Interactivity, ProcessIdentity, ReleaseChannel, set_identity, set_release_channel,
 };
 mod agent_command;
+mod chatgpt_login;
 fn process_identity(command: Option<&Command>, is_interactive: bool) -> Option<ProcessIdentity> {
     use xai_grok_telemetry::process_info::LeaderMode::Standalone;
     let (entrypoint, interactivity) = match command {
         Some(Command::Agent(_)) => return None,
         Some(Command::Dashboard) => return None,
-        Some(Command::Login { .. }) => (Entrypoint::Cli, Interactivity::Interactive),
+        Some(Command::Login { .. } | Command::ChatgptLogin { .. }) => {
+            (Entrypoint::Cli, Interactivity::Interactive)
+        }
         Some(
             Command::Inspect { .. }
             | Command::Doctor(_)
             | Command::Leader(_)
             | Command::Logout
+            | Command::ChatgptLogout
+            | Command::ChatgptToken
             | Command::Mcp(_)
             | Command::Plugin(_)
             | Command::Memory(_)
@@ -102,6 +107,9 @@ fn command_needs_pre_sandbox_policy_heal(command: Option<&Command>) -> bool {
             | Command::Leader(_)
             | Command::Logout
             | Command::Login { .. }
+            | Command::ChatgptLogin { .. }
+            | Command::ChatgptLogout
+            | Command::ChatgptToken
             | Command::Mcp(_)
             | Command::Plugin(_)
             | Command::Memory(_)
@@ -2409,6 +2417,20 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                     .map_err(|e| anyhow::anyhow!("Failed to create agent config: {e}"))?;
                 xai_grok_shell::agent::init::run_cli_logout(&config.grok_com_config)?;
                 xai_grok_shell::instrumentation::finalize_and_exit(0);
+            }
+            Command::ChatgptLogin { device } => {
+                init_tracing_simple("cli");
+                chatgpt_login::run_login(device).await?;
+                xai_grok_shell::instrumentation::finalize_and_exit(0);
+            }
+            Command::ChatgptLogout => {
+                init_tracing_simple("cli");
+                chatgpt_login::run_logout()?;
+                xai_grok_shell::instrumentation::finalize_and_exit(0);
+            }
+            Command::ChatgptToken => {
+                chatgpt_login::print_token().await?;
+                return Ok(());
             }
             Command::Wrap(ref wrap_args) => {
                 return xai_grok_pager::wrap_cmd::run(wrap_args);

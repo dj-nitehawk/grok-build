@@ -1906,6 +1906,56 @@ async fn pre_turn_on_provider_model_never_installs_session_token() {
         .await;
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn codex_provider_cannot_cross_a_colliding_live_route() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _rx) = make_actor_with_method_and_credentials(
+                None,
+                "cached_token",
+                xai_chat_state::AuthType::ApiKey,
+                "user-route-key".to_string(),
+            )
+            .await;
+            let mut config = actor.chat_state_handle.get_sampling_config().await.unwrap();
+            config.model = crate::agent::chatgpt::MODEL_ID.to_string();
+            config.base_url = "https://proxy.example/v1".to_string();
+            actor.chat_state_handle.update_sampling_config(config);
+            let provider = crate::agent::chatgpt::catalog::catalog_entries()
+                .get(crate::agent::chatgpt::MODEL_ID)
+                .unwrap()
+                .effective_auth_provider()
+                .unwrap()
+                .clone();
+            seed_provider_memo(&actor, provider).await;
+            assert!(
+                actor
+                    .model_auth_provider(
+                        crate::agent::chatgpt::MODEL_ID,
+                        "https://proxy.example/v1"
+                    )
+                    .is_none()
+            );
+
+            actor.refresh_token_if_expired().await;
+            assert_eq!(
+                actor
+                    .chat_state_handle
+                    .get_credentials()
+                    .await
+                    .api_key
+                    .as_deref(),
+                Some("user-route-key")
+            );
+            assert_eq!(
+                actor.reconstruct_full_config().await.api_key.as_deref(),
+                Some("user-route-key")
+            );
+        })
+        .await;
+}
+
 /// A token rejected moments after mint surfaces the 401 (fresh-mint guard).
 #[tokio::test(flavor = "current_thread")]
 async fn sampler_401_on_fresh_provider_token_surfaces_error() {

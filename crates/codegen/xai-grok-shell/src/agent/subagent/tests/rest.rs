@@ -2364,6 +2364,20 @@ fn resolve_model_override_to_config_no_resolver_for_byok_model() {
     assert!(config.bearer_resolver.is_none());
     assert_eq!(config.api_key.as_deref(), Some("sk-byok"));
 }
+
+#[test]
+fn pinned_codex_subagent_keeps_live_chatgpt_resolver() {
+    let mut ctx = ctx_with_toggle(HashMap::new());
+    ctx.available_models = crate::agent::chatgpt::catalog::catalog_entries();
+    let (config, _) = resolve_model_override_to_config("gpt-6-astra", &ctx).unwrap();
+    assert_eq!(
+        config
+            .bearer_resolver
+            .as_ref()
+            .and_then(|resolver| resolver.auth_provider_name()),
+        Some("chatgpt")
+    );
+}
 #[tokio::test]
 async fn read_parent_sampling_config_resolves_backend_search_from_catalog() {
     let mut entry = test_model_entry("grok-4.5");
@@ -2802,23 +2816,9 @@ async fn subagent_override_provider_model_spawns_cache_only_credentials() {
     assert_eq!(config.base_url, "https://gateway.example/v1");
 }
 #[test]
-fn key_prefix_truncates_to_8_chars() {
-    let key = Some("eyJ0eXAiOiJhbGciOiJSUzI1NiJ9".to_string());
-    assert_eq!(key_prefix(&key), "eyJ0eXAi");
-}
-#[test]
-fn key_prefix_short_key_not_truncated() {
-    let key = Some("abc".to_string());
-    assert_eq!(key_prefix(&key), "abc");
-}
-#[test]
-fn key_prefix_none_returns_placeholder() {
-    assert_eq!(key_prefix(&None), "<none>");
-}
-#[test]
-fn key_prefix_empty_string() {
-    let key = Some(String::new());
-    assert_eq!(key_prefix(&key), "");
+fn key_presence_logging_never_contains_a_secret() {
+    assert!(key_present(&Some("synthetic-secret".to_string())));
+    assert!(!key_present(&None));
 }
 #[test]
 fn non_cursor_persona_injected_as_system_reminder() {

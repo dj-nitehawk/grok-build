@@ -689,6 +689,7 @@ pub struct AppView {
     /// True while a billing fetch task is in flight — prevents stacking
     /// concurrent Alt+Q / `/usage` requests before the first lands.
     pub billing_fetch_in_flight: bool,
+    pub(crate) chatgpt_quota: super::provider_quota::State,
     /// Periodic billing poll requested (credits >= 99%).
     ///
     /// Disabled for the info-line quota chip: usage is refreshed only via
@@ -1643,6 +1644,7 @@ impl AppView {
             auto_topup: None,
             billing_fetched_at: None,
             billing_fetch_in_flight: false,
+            chatgpt_quota: Default::default(),
             billing_poll_wanted: false,
             leader_roster: Vec::new(),
             dashboard_local_sessions: Vec::new(),
@@ -4859,6 +4861,7 @@ impl AppView {
                                         overlay_header,
                                         overlay_stop_label: None,
                                         billing_fetch_in_flight: self.billing_fetch_in_flight,
+                                        chatgpt_quota: Some(&self.chatgpt_quota),
                                     },
                                 );
                                 if let Some(modal) = self.import_claude_modal.as_mut() {
@@ -4994,6 +4997,7 @@ impl AppView {
                                                                 .workspace_dashboard_enabled,
                                                             billing_fetch_in_flight: self
                                                                 .billing_fetch_in_flight,
+                                                            chatgpt_quota: Some(&self.chatgpt_quota),
                                                             ..Default::default()
                                                         },
                                                     )

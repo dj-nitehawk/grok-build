@@ -586,7 +586,19 @@ impl SessionActor {
         cwd: &str,
         model_override: Option<&str>,
     ) -> Option<String> {
-        let sampling_client = self.prepare_chat_completion(false).await.ok()?;
+        self.refresh_token_if_expired().await;
+        let active = self.reconstruct_full_config().await;
+        let model_override = model_override.map(str::trim).filter(|m| !m.is_empty());
+        let routed = self
+            .resolve_aux_sampler_config(model_override.unwrap_or("grok-4.6"))
+            .await;
+        let config = crate::session::helpers::prompt_suggest::suggest_sampling_config(
+            active,
+            routed,
+            model_override.is_none(),
+        )?;
+        let model = config.model.clone();
+        let sampling_client = xai_grok_sampler::SamplingClient::new(config).ok()?;
 
         let system = "You are a shell command autocomplete engine. \
             Given a partial command, output ONLY the completed command. \
@@ -598,11 +610,6 @@ impl SessionActor {
             ConversationItem::system(system.to_owned()),
             ConversationItem::user(user_msg),
         ];
-
-        let model = match model_override {
-            Some(m) => m.to_owned(),
-            None => "grok-4.6".to_owned(),
-        };
 
         let request = ConversationRequest {
             items,
@@ -690,8 +697,9 @@ impl SessionActor {
         };
 
         self.refresh_token_if_expired().await;
-        let mut sampling_config = self.reconstruct_full_config().await;
-        sampling_config.model = model.clone();
+        let active = self.reconstruct_full_config().await;
+        let routed = self.resolve_aux_sampler_config(&model).await;
+        let mut sampling_config = prompt_suggest::suggest_sampling_config(active, routed, false)?;
         sampling_config.reasoning_effort = None;
         let supports_reasoning = self.models_manager.model_supports_reasoning_effort(&model);
         let suggest_reasoning = prompt_suggest::resolve_suggest_reasoning(

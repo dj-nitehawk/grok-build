@@ -469,8 +469,18 @@ impl SessionActor {
     pub(super) fn model_auth_provider(
         &self,
         model_id: &str,
+        base_url: &str,
     ) -> Option<xai_grok_login::AuthProviderRef> {
-        self.model_auth_state(model_id).1
+        let provider = self.model_auth_state(model_id).1?;
+        if provider.name == crate::agent::chatgpt::AUTH_PROVIDER_NAME {
+            return (crate::agent::config::auth_provider_name_for_matching_route(
+                model_id, base_url,
+            )
+            .as_deref()
+                == Some(provider.name.as_str()))
+            .then_some(provider);
+        }
+        Some(provider)
     }
 
     /// Drop the memoized per-model auth state; see [`Self::model_auth_memo`] for why each model/credential chokepoint must call this.
@@ -601,7 +611,7 @@ impl SessionActor {
     /// See [`crate::agent::auth_method::session_token_auth_gate`] for the rationale.
     /// `base_url` keeps an `Unknown` BYOK status refreshable only against first-party xAI hosts.
     fn auth_gate(&self, model_id: &str, base_url: &str) -> SessionTokenAuthGate {
-        let byok = self.model_auth_facts(model_id).byok;
+        let byok = crate::agent::config::byok_for_live_route(model_id, base_url);
         let auth_method = self.auth_method_id.load();
         SessionTokenAuthGate::new(auth_method.as_deref(), byok, base_url)
     }
@@ -690,12 +700,21 @@ impl SessionActor {
             });
         let creds = self.chat_state_handle.get_credentials().await;
         let model_facts = self.model_auth_facts(cfg.model.as_str());
+        // Provider name and NotByok are usable only when this lookup is the row
+        // for the live URL. A wire id that collides with a catalog key must not
+        // donate that row's bearer or the Grok session token.
+        let chatgpt_auth_provider = crate::agent::config::auth_provider_name_for_matching_route(
+            cfg.model.as_str(),
+            &cfg.base_url,
+        );
+        let route_byok =
+            crate::agent::config::byok_for_live_route(cfg.model.as_str(), &cfg.base_url);
         // Gate on the stable session classifier, not `creds.auth_type`; see `crate::agent::auth_method::session_token_auth_gate`
         // `cfg.base_url` keeps an `Unknown` BYOK status refreshable against first-party xAI hosts
         // That avoids leaking the session token to a third-party endpoint
         let auth_method = self.auth_method_id.load();
         let gate =
-            SessionTokenAuthGate::new(auth_method.as_deref(), model_facts.byok, &cfg.base_url);
+            SessionTokenAuthGate::new(auth_method.as_deref(), route_byok, &cfg.base_url);
         let use_bearer_resolver = gate.active();
         self.log_auth_gate_unknown("reconstruct_full_config", gate, &cfg.base_url);
         // Refresh the session token before the sampler reads it; gated to sessions that use it.
@@ -752,7 +771,9 @@ impl SessionActor {
             &cfg.base_url,
         );
         let request_compression = crate::util::config::request_compression_for_url(&cfg.base_url);
-        SamplingConfig {
+        let include_encrypted_reasoning =
+            crate::agent::chatgpt::extras::include_encrypted_reasoning(&cfg.base_url);
+        let mut config = SamplingConfig {
             api_key,
             base_url: cfg.base_url,
             mtls_cert_dir: cfg.mtls_cert_dir,
@@ -807,7 +828,14 @@ impl SessionActor {
             // The sampler sends the opt-in header itself when this is set.
             doom_loop_recovery: self.doom_loop_recovery,
             header_injector: Some(std::sync::Arc::new(TraceContextInjector)),
-        }
+            include_encrypted_reasoning,
+            responses_system_as_instructions: false,
+        };
+        crate::agent::chatgpt::stamp_reconstructed_sampler_config(
+            &mut config,
+            chatgpt_auth_provider.as_deref(),
+        );
+        config
     }
 
     /// Install the auto-mode permission classifier with a live LLM side-query.
@@ -1365,7 +1393,7 @@ impl SessionActor {
         // The provider is resolved before the eligibility check so its warnings stay quiet for a 401 that 4c handles
         let auth_provider =
             if matches!(error.kind, SamplingErrorKind::Auth) || error.status_code == Some(401) {
-                self.model_auth_provider(&failed_model_id)
+                self.model_auth_provider(&failed_model_id, &failed_base_url)
             } else {
                 None
             };
@@ -2062,15 +2090,15 @@ impl SessionActor {
 
         let creds = self.chat_state_handle.get_credentials().await;
         let current_key = creds.api_key;
-        let current_model_id = self
+        let (current_model_id, current_base_url) = self
             .chat_state_handle
             .get_sampling_config()
             .await
-            .map(|c| c.model)
+            .map(|c| (c.model, c.base_url))
             .unwrap_or_default();
 
         // Provider-backed models mint and refresh here so `resolve_credentials` stays cache-only
-        if let Some(provider) = self.model_auth_provider(&current_model_id) {
+        if let Some(provider) = self.model_auth_provider(&current_model_id, &current_base_url) {
             self.refresh_provider_token_pre_turn(
                 &provider,
                 current_key.as_deref(),

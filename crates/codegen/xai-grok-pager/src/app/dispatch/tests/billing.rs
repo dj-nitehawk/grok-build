@@ -1773,9 +1773,58 @@ fn billing_error_surfaces_in_usage_modal_without_scrollback() {
 
 // ── Alt+Q usage-quota refresh + 1-minute cache ─────────────────────
 
+fn set_quota_provider(app: &mut AppView, provider: &str) {
+    use agent_client_protocol as acp;
+    let models = &mut app.agents.get_mut(&AgentId(0)).unwrap().session.models;
+    let id = acp::ModelId::new("quota-test-model");
+    let meta = serde_json::Map::from_iter([("quotaProvider".into(), provider.into())]);
+    models.available.insert(
+        id.clone(),
+        acp::ModelInfo::new(id.clone(), "Quota test").meta(meta),
+    );
+    models.current = Some(id);
+}
+
+#[test]
+fn quota_switches_preserve_originating_caches_without_grok_eligibility() {
+    let mut app = test_app_with_agent();
+    set_quota_provider(&mut app, "grok");
+    assert!(matches!(
+        dispatch(Action::RefreshUsageQuota, &mut app).as_slice(),
+        [Effect::FetchBilling { .. }]
+    ));
+    set_quota_provider(&mut app, "chatgpt");
+    app.usage_visible = false;
+    let effects = dispatch(Action::RefreshUsageQuota, &mut app);
+    let [Effect::FetchChatgptQuota { request }] = effects.as_slice() else {
+        panic!("expected ChatGPT fetch")
+    };
+    let request = request.clone();
+    assert!(dispatch(Action::RefreshUsageQuota, &mut app).is_empty());
+    dispatch_billing(&mut app, Some(test_bal(12.0)), true, None);
+    assert!(app.chatgpt_quota.snapshot.is_none());
+    set_quota_provider(&mut app, "grok");
+    dispatch(
+        Action::TaskComplete(TaskResult::ChatgptQuotaFetched {
+            request,
+            result: Ok(Default::default()),
+        }),
+        &mut app,
+    );
+    assert!(app.chatgpt_quota.snapshot.is_some());
+    assert_eq!(app.credit_balance.as_ref().unwrap().usage_pct, 12.0);
+    app.usage_visible = true;
+    assert!(dispatch(Action::RefreshUsageQuota, &mut app).is_empty());
+    set_quota_provider(&mut app, "chatgpt");
+    assert!(dispatch(Action::RefreshUsageQuota, &mut app).is_empty());
+    set_quota_provider(&mut app, "unsupported");
+    assert!(dispatch(Action::RefreshUsageQuota, &mut app).is_empty());
+}
+
 #[test]
 fn refresh_usage_quota_fetches_when_cache_empty() {
     let mut app = test_app_with_agent();
+    set_quota_provider(&mut app, "grok");
     assert!(app.billing_fetched_at.is_none());
     assert!(!app.billing_fetch_in_flight);
     let effects = dispatch(Action::RefreshUsageQuota, &mut app);
@@ -1815,6 +1864,7 @@ fn refresh_usage_quota_fetches_when_cache_empty() {
 #[test]
 fn refresh_usage_quota_skips_when_cache_warm() {
     let mut app = test_app_with_agent();
+    set_quota_provider(&mut app, "grok");
     // Simulate a successful fetch just now.
     app.billing_fetched_at = Some(std::time::Instant::now());
     app.credit_balance = Some(test_bal(10.0));
@@ -1829,6 +1879,7 @@ fn refresh_usage_quota_skips_when_cache_warm() {
 #[test]
 fn refresh_usage_quota_skips_when_fetch_in_flight() {
     let mut app = test_app_with_agent();
+    set_quota_provider(&mut app, "grok");
     app.billing_fetch_in_flight = true;
     let effects = dispatch(Action::RefreshUsageQuota, &mut app);
     assert!(
@@ -1840,6 +1891,7 @@ fn refresh_usage_quota_skips_when_fetch_in_flight() {
 #[test]
 fn refresh_usage_quota_no_op_when_usage_hidden() {
     let mut app = test_app_with_agent();
+    set_quota_provider(&mut app, "grok");
     app.usage_visible = false;
     let effects = dispatch(Action::RefreshUsageQuota, &mut app);
     assert!(effects.is_empty());

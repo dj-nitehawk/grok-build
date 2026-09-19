@@ -57,6 +57,7 @@ pub struct AppRenderParams<'a> {
     /// the prompt info-line `"refreshing..."` chip; lives on `AppView` so
     /// the agent view cannot see it without this param.
     pub billing_fetch_in_flight: bool,
+    pub chatgpt_quota: Option<&'a crate::app::provider_quota::State>,
 }
 /// What the dashboard overlay contributes to the header row (see [`AppRenderParams::overlay_header`]).
 #[derive(Debug, Clone, Copy, Default)]
@@ -588,6 +589,7 @@ impl AgentView {
             overlay_header,
             overlay_stop_label,
             billing_fetch_in_flight,
+            chatgpt_quota,
         } = app_params;
         self.scrollback.begin_frame();
         self.in_dashboard_overlay = in_dashboard_overlay;
@@ -2317,6 +2319,12 @@ impl AgentView {
             self.billing_surface_visible,
             billing_fetch_in_flight,
             self.credit_balance.as_ref(),
+        );
+        let border_chips = crate::views::credit_bar::provider_border_chips(
+            border_chips,
+            &self.session.models,
+            chatgpt_quota,
+            self.chat_kind,
         );
         let info_flags_vec = border_chips.with_mode_flags(flags);
         let info_flags: &[PromptFlag] = &info_flags_vec;

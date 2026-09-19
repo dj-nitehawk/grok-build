@@ -156,6 +156,7 @@ pub(in crate::app::dispatch) fn confirmed_quit(app: &mut AppView) -> Vec<Effect>
 /// Only the outermost call shows the image notices the whole tree queued, so a nested action's own
 /// toast cannot bury them and one submission yields one message.
 pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
+    app.chatgpt_quota.sync_authentication(false);
     app.dispatch_depth = app.dispatch_depth.saturating_add(1);
     let effects = dispatch_inner(action, app);
     app.dispatch_depth = app.dispatch_depth.saturating_sub(1);
