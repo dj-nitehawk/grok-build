@@ -122,7 +122,7 @@ pub enum ActionId {
     // Settings
     OpenSettings,
 
-    /// Refresh Grok usage-quota details for the prompt info line (Alt+Q).
+    /// Refresh active-provider usage-quota details for the prompt info line (Alt+Q).
     /// Hits the billing endpoint at most once per minute; the info line
     /// always reads the cached balance.
     RefreshUsageQuota,

@@ -6,6 +6,7 @@ pub mod billing;
 pub mod btw;
 pub mod bundle;
 pub(crate) mod chat_conversation_history;
+pub mod chatgpt_quota;
 pub mod code_nav;
 pub mod consent;
 pub mod content;

@@ -3380,6 +3380,8 @@ async fn drain_and_process(
         let ev = &routed.event;
         match ev {
             Event::FocusGained => {
+                app.chatgpt_quota.sync_authentication(true);
+                needs_draw = true;
                 reassert_mouse_capture_on_focus(&app.escape_writer);
                 if crate::terminal::terminal_context().repaints_pane_out_of_band() {
                     force_repaint = true;

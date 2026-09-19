@@ -1880,7 +1880,7 @@ impl Config {
             warnings: config_warnings,
         } = super::config_model_override_parse::parse_model_overrides(raw_config);
         let (mut auth_providers, auth_provider_warnings) = parse_auth_providers(raw_config);
-        let (model_providers, mut model_provider_warnings) = parse_model_providers(raw_config);
+        let (mut model_providers, mut model_provider_warnings) = parse_model_providers(raw_config);
         for (model_id, model) in &config_models {
             let Some(cert_dir) = model.mtls_cert_dir.as_deref() else {
                 continue;
@@ -1913,6 +1913,10 @@ impl Config {
                 ));
             }
         }
+        crate::agent::chatgpt::inject_synthetic_providers(
+            &mut auth_providers,
+            &mut model_providers,
+        );
         for (id, provider) in &model_providers {
             if let Some(auth) = &provider.auth {
                 let synthetic = model_provider_auth_name(id);
@@ -3357,6 +3361,7 @@ pub(crate) fn resolve_model_list(
         }
         resolved = prefetched;
     }
+    crate::agent::chatgpt::merge_catalog(&mut resolved);
     let mut explicit_api_backend_keys = std::collections::HashSet::new();
     let mut explicit_supports_effort_false_keys = std::collections::HashSet::new();
     let mut explicit_menu_keys = std::collections::HashSet::new();
@@ -3584,10 +3589,12 @@ fn apply_global_scalar_defaults(
 }
 /// Built-in default models. Prefer `resolve_model_list()`.
 pub(crate) fn default_model_entries(endpoints: &EndpointsConfig) -> IndexMap<String, ModelEntry> {
-    default_models(endpoints)
+    let mut resolved: IndexMap<String, ModelEntry> = default_models(endpoints)
         .into_iter()
         .map(|(key, entry)| (key, ModelEntry::from_config_entry(&entry)))
-        .collect()
+        .collect();
+    resolved.extend(crate::agent::chatgpt::catalog_entries());
+    resolved
 }
 /// Resolve a model against the available model map.
 /// Checks the map key (id) first, then falls back to a slug scan.
@@ -4880,6 +4887,61 @@ pub(crate) fn resolve_model_auth_facts_and_provider(
         (facts, provider)
     })
 }
+
+/// Auth provider for a live request, or `None` when `model_id` resolves to a
+/// different catalog row than the one serving `base_url`.
+///
+/// `find_model_by_id` prefers the map key. The wire id `gpt-6-astra` is also the
+/// synthetic catalog key, so a user model that only reuses that wire id must not
+/// inherit the synthetic row's ChatGPT provider.
+pub(crate) fn matching_route_auth_provider(entry: &ModelEntry, base_url: &str) -> Option<String> {
+    if entry.info().base_url != base_url {
+        return None;
+    }
+    entry
+        .effective_auth_provider()
+        .map(|provider| provider.name.clone())
+}
+
+pub(crate) fn auth_provider_name_for_matching_route(
+    model_id: &str,
+    base_url: &str,
+) -> Option<String> {
+    with_resolved_model(model_id, |lookup| match lookup {
+        ModelLookup::Loaded(Some(entry)) => matching_route_auth_provider(entry, base_url),
+        _ => None,
+    })
+}
+
+/// `NotByok` means "this row uses the Grok session token", which is only safe
+/// when the row we found is the one serving `base_url`. A wire-id collision
+/// (user model `grok-4.6` on another host) must not inherit that decision.
+pub(crate) fn byok_for_live_route_decision(
+    byok: crate::agent::auth_method::ModelByok,
+    entry_base_url: &str,
+    live_base_url: &str,
+) -> crate::agent::auth_method::ModelByok {
+    if byok == crate::agent::auth_method::ModelByok::NotByok && entry_base_url != live_base_url {
+        crate::agent::auth_method::ModelByok::Unknown
+    } else {
+        byok
+    }
+}
+
+pub(crate) fn byok_for_live_route(
+    model_id: &str,
+    base_url: &str,
+) -> crate::agent::auth_method::ModelByok {
+    with_resolved_model(model_id, |lookup| {
+        let byok = byok_from_lookup(&lookup);
+        match lookup {
+            ModelLookup::Loaded(Some(entry)) => {
+                byok_for_live_route_decision(byok, &entry.info().base_url, base_url)
+            }
+            _ => byok,
+        }
+    })
+}
 fn byok_from_lookup(lookup: &ModelLookup) -> ModelByok {
     match lookup {
         ModelLookup::ConfigUnavailable => ModelByok::Unknown,
@@ -4933,7 +4995,11 @@ pub(crate) fn resolve_aux_model_sampling_config(
             None,
             None,
         );
-        if sampler.api_key.is_some() {
+        if sampler.api_key.is_some()
+            || sampler.bearer_resolver.is_some()
+            || (entry.effective_auth_provider().is_none()
+                && !crate::agent::chatgpt::is_first_party_responses_host(&sampler.base_url))
+        {
             return Some(sampler);
         }
         if entry.effective_auth_provider().is_some() {
@@ -5028,7 +5094,11 @@ pub(crate) fn stamp_session_local_sampler_fields(
     cfg.client_identifier = client_identifier;
     cfg.conversation_group_id = active_session_config.conversation_group_id.clone();
     cfg.attribution_callback = active_session_config.attribution_callback.clone();
-    if crate::util::is_xai_api_bearer_url(&cfg.base_url) {
+    if crate::util::is_xai_api_bearer_url(&cfg.base_url)
+        && crate::util::is_xai_api_bearer_url(&active_session_config.base_url)
+        && cfg.api_key == active_session_config.api_key
+        && cfg.bearer_resolver.is_none()
+    {
         cfg.bearer_resolver = active_session_config.bearer_resolver.clone();
     }
     cfg.max_retries = max_retries;
@@ -5078,8 +5148,7 @@ pub(crate) fn response_include_extensions(
     api_backend: &ApiBackend,
     base_url: &str,
 ) -> Vec<String> {
-    let is_trusted_route = crate::util::is_trusted_cli_chat_proxy_url(base_url)
-        || crate::util::is_trusted_xai_https_url(base_url);
+    let is_trusted_route = crate::agent::chatgpt::is_first_party_responses_host(base_url);
     if supports_backend_search && api_backend == &ApiBackend::Responses && is_trusted_route {
         vec![NO_INLINE_CITATIONS_RESPONSE_INCLUDE.to_owned()]
     } else {
@@ -5113,7 +5182,9 @@ pub(crate) fn sampling_config_for_model(
     );
     let request_compression =
         crate::util::config::request_compression_for_url(&credentials.base_url);
-    SamplerConfig {
+    let include_encrypted_reasoning =
+        crate::agent::chatgpt::extras::include_encrypted_reasoning(&credentials.base_url);
+    let mut config = SamplerConfig {
         api_key: credentials.api_key,
         model: model_name,
         base_url: credentials.base_url,
@@ -5153,7 +5224,11 @@ pub(crate) fn sampling_config_for_model(
         compaction_at_tokens: info.compaction_at_tokens,
         doom_loop_recovery: None,
         header_injector: None,
-    }
+        include_encrypted_reasoning,
+        responses_system_as_instructions: false,
+    };
+    crate::agent::chatgpt::stamp_sampler_config(&mut config, model);
+    config
 }
 /// Fold URL-derived headers into `extra_headers`. The sampler crate is intentionally URL-agnostic: it does not inspect `base_url` to decide which auth or staging headers to add.
 /// Replicate the URL-derived header logic at the shell boundary so callers downstream see a single homogenous header bag. cli-chat-proxy bases get `X-XAI-Token-Auth` and `x-authenticateresponse` headers.
@@ -5299,6 +5374,7 @@ pub(crate) fn to_acp_model_info(
             let total_context_tokens = info.context_window.get();
             let meta = {
                 let mut map = serde_json::Map::new();
+                crate::agent::chatgpt::quota::stamp_provider(model, &mut map);
                 map.insert(
                     "totalContextTokens".to_string(),
                     serde_json::Value::Number(total_context_tokens.into()),

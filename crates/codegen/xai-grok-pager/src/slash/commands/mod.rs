@@ -4,6 +4,7 @@ pub mod announcements;
 pub mod auto;
 pub mod btw;
 pub mod cd;
+pub mod chatgpt_login;
 pub mod compact;
 pub mod compact_mode;
 pub mod config_agents;
@@ -155,6 +156,7 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         #[cfg(feature = "foreign-sessions")]
         Arc::new(import_claude::ImportClaudeCommand),
         Arc::new(login::LoginCommand),
+        Arc::new(chatgpt_login::ChatgptLoginCommand),
         Arc::new(logout::LogoutCommand),
         Arc::new(home::HomeCommand),
         Arc::new(delete::DeleteCommand),
