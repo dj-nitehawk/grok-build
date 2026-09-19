@@ -249,7 +249,12 @@ fn atomic_write_string_inner(
     atomic_write_resolved_string(&dest, content)
 }
 /// Publish onto an already-bound destination. Temp inherits the current dest mode.
+/// User `config.toml` goes through the privileged writer when a sandbox write-deny is active.
 pub(crate) fn atomic_write_resolved_string(dest: &BoundDest, content: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(result) = xai_grok_sandbox::write_user_config_if_live(dest.as_path(), content) {
+        return result;
+    }
     if let Some(parent) = dest.as_path().parent() {
         let _ = std::fs::create_dir_all(parent);
     }
