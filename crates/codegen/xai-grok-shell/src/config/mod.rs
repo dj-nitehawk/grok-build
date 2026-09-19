@@ -1463,6 +1463,15 @@ pub fn apply_sandbox(
         .and_then(|p| dunce::canonicalize(p).ok())
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
+    #[cfg(unix)]
+    if xai_grok_sandbox::requires_hook_write_deny(&sandbox_profile, &workspace)
+        && let Err(e) = xai_grok_sandbox::install_user_config_writer()
+    {
+        tracing::warn!(
+            error = %e,
+            "could not start the privileged settings writer; user config.toml will not persist under this sandbox"
+        );
+    }
     #[cfg(target_os = "linux")]
     let requires_read_deny = xai_grok_sandbox::requires_read_deny(&sandbox_profile, &workspace);
     #[cfg(target_os = "linux")]
@@ -1483,18 +1492,16 @@ pub fn apply_sandbox(
         };
         let command = xai_grok_sandbox::bwrap_reexec_for_profile(&sandbox_profile, &workspace);
         match route_bwrap_startup(command, xai_grok_sandbox::is_inside_bwrap(), requires_bwrap) {
-            BwrapStartup::ReexecRequired(mut cmd) => {
-                use std::os::unix::process::CommandExt;
-                let err = cmd.exec();
+            BwrapStartup::ReexecRequired(cmd) => {
+                let err = xai_grok_sandbox::exec_command_preserving_user_config_writer(cmd);
                 refuse_unprotected(&format!(
                     "bwrap exec failed: {err}. Install bubblewrap with \
                      `apt install -y bubblewrap`."
                 ));
                 std::process::exit(1);
             }
-            BwrapStartup::ReexecOptional(mut cmd) => {
-                use std::os::unix::process::CommandExt;
-                let err = cmd.exec();
+            BwrapStartup::ReexecOptional(cmd) => {
+                let err = xai_grok_sandbox::exec_command_preserving_user_config_writer(cmd);
                 eprintln!(
                     "WARNING: bwrap exec failed: {err}. \
                      Falling back to Landlock sandbox. \
