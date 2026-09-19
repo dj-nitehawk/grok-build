@@ -2,6 +2,7 @@ pub mod activity;
 pub mod app;
 pub mod auth_method;
 pub mod chat_modes;
+pub mod chatgpt;
 pub mod config;
 pub(crate) mod config_model_override_parse;
 pub(crate) mod cursor_worker_config;

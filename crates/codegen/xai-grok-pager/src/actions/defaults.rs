@@ -864,7 +864,7 @@ pub(super) fn default_actions(
             hint_key_display: Some("Alt+Q"),
             requires_confirmation: false,
             long_help: Some(
-                "Fetches your Grok usage quota and shows it on the prompt's bottom border as a percentage with reset time (e.g. 10% (reset: 4d5h)).\nResults are cached for one minute — pressing Alt+Q more often reuses the cache and does not hit the endpoint again.",
+                "Fetches subscription quota for the active Grok or ChatGPT/Codex model on the prompt bottom border. ChatGPT shows each available usage window and reset time.\nEach provider caches successful results for one minute. Repeated presses coalesce; failed requests can be retried immediately. No automatic polling. Other providers and OpenAI API-key billing are unsupported.",
             ),
         },
     ];

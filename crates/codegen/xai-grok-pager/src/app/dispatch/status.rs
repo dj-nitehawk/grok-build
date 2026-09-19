@@ -471,24 +471,9 @@ pub(super) fn append_consumer_billing_surface(app: &mut AppView, agent_id: Agent
     super::billing::fetch_billing_if_allowed(app, agent_id, false)
 }
 
-/// Alt+Q — refresh Grok usage quota for the prompt info line.
-///
-/// Hits the billing endpoint only when the 1-minute cache has expired
-/// (and no fetch is already in flight). While the fetch runs the info line
-/// shows `"refreshing..."`; on completion it shows the cached balance.
-/// Scrollback stays silent (`silent: true`).
+/// Refresh quota for the active model's provider without changing `/usage`.
 pub(super) fn dispatch_refresh_usage_quota(app: &mut AppView) -> Vec<Effect> {
-    if !app.usage_visible {
-        return vec![];
-    }
-    let crate::app::app_view::ActiveView::Agent(id) = app.active_view else {
-        return vec![];
-    };
-    if !app.agents.contains_key(&id) {
-        return vec![];
-    }
-    // Silent: update the cache / info line only — no scrollback spam.
-    super::billing::fetch_billing_if_allowed(app, id, true)
+    crate::app::provider_quota::refresh(app)
 }
 
 /// `/usage manage`: open consumer billing. No-op when the surface is hidden.

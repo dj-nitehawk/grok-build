@@ -19,6 +19,7 @@ pub mod cli;
 pub(crate) mod command_catalog;
 pub mod consent;
 pub(crate) mod deferred_subagent_finishes;
+pub mod provider_quota;
 pub use crate::link_opener;
 /// Off-thread full-file syntax highlight upgrade for edit diffs.
 pub mod edit_highlight_worker;

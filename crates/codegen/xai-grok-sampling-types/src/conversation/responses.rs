@@ -168,6 +168,72 @@ pub(super) fn build_responses_input(req: &ConversationRequest) -> rs::InputParam
     rs::InputParam::Items(items)
 }
 
+/// Codex (`chatgpt.com/backend-api/codex`) rejects `role: system` in `input`
+/// with "System messages are not allowed". Codex CLI puts that text in the
+/// top-level Responses `instructions` field instead.
+pub fn lift_system_input_to_instructions(request: &mut rs::CreateResponse) {
+    let rs::InputParam::Items(items) = &mut request.input else {
+        return;
+    };
+
+    let mut lifted = Vec::new();
+    let mut kept = Vec::with_capacity(items.len());
+    for item in std::mem::take(items) {
+        if let Some(text) = system_input_text(&item) {
+            if !text.is_empty() {
+                lifted.push(text);
+            }
+            continue;
+        }
+        kept.push(item);
+    }
+    *items = kept;
+
+    if lifted.is_empty() {
+        return;
+    }
+    let joined = lifted.join("\n\n");
+    match request.instructions.as_mut() {
+        Some(existing) if !existing.is_empty() => {
+            existing.push_str("\n\n");
+            existing.push_str(&joined);
+        }
+        _ => request.instructions = Some(joined),
+    }
+}
+
+fn system_input_text(item: &rs::InputItem) -> Option<String> {
+    match item {
+        rs::InputItem::EasyMessage(m) if m.role == rs::Role::System => {
+            Some(easy_content_text(&m.content))
+        }
+        rs::InputItem::Item(rs::Item::Message(rs::MessageItem::Input(m)))
+            if m.role == rs::InputRole::System =>
+        {
+            Some(input_content_list_text(&m.content))
+        }
+        _ => None,
+    }
+}
+
+fn easy_content_text(content: &rs::EasyInputContent) -> String {
+    match content {
+        rs::EasyInputContent::Text(text) => text.clone(),
+        rs::EasyInputContent::ContentList(parts) => input_content_list_text(parts),
+    }
+}
+
+fn input_content_list_text(parts: &[rs::InputContent]) -> String {
+    parts
+        .iter()
+        .filter_map(|part| match part {
+            rs::InputContent::InputText(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Inject the `type: "reasoning_text"` discriminator the API requires.
 /// `async-openai`'s `ReasoningTextContent` has no `type` field, so it serializes to `{"text": ...}` and the API answers 400.
 /// Delete this once upstream grows the field.

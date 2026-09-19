@@ -40,6 +40,19 @@ pub enum Command {
         #[arg(skip)]
         devbox: bool,
     },
+    /// Sign in with ChatGPT Plus/Pro (unofficial Codex backend)
+    #[command(name = "chatgpt-login")]
+    ChatgptLogin {
+        /// Device-code flow when port 1455 is busy or no browser is available.
+        #[arg(long)]
+        device: bool,
+    },
+    /// Sign out of ChatGPT and delete cached Codex tokens
+    #[command(name = "chatgpt-logout")]
+    ChatgptLogout,
+    /// Print a ChatGPT access token as JSON for `[auth_provider.chatgpt]`
+    #[command(name = "chatgpt-token")]
+    ChatgptToken,
     /// Manage MCP server configurations
     Mcp(crate::mcp_cmd::McpArgs),
     /// Manage plugins and marketplace sources
@@ -1391,6 +1404,17 @@ mod tests {
         let args = PagerArgs::try_parse_from(["grok", "logout"]).expect("subcommand parses");
         assert!(matches!(args.command, Some(Command::Logout)));
         assert!(args.prompt.is_none());
+    }
+    #[test]
+    fn chatgpt_login_subcommand_parses_device_flag() {
+        let args = PagerArgs::try_parse_from(["grok", "chatgpt-login", "--device"])
+            .expect("chatgpt-login parses");
+        assert!(matches!(
+            args.command,
+            Some(Command::ChatgptLogin { device: true })
+        ));
+        let token = PagerArgs::try_parse_from(["grok", "chatgpt-token"]).expect("chatgpt-token");
+        assert!(matches!(token.command, Some(Command::ChatgptToken)));
     }
     #[test]
     fn usage_command_parses_session_and_optional_turn() {
