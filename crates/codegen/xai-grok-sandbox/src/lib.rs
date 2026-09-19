@@ -37,6 +37,8 @@ mod runtime_sockets;
 #[cfg(test)]
 mod test_util;
 mod types;
+#[cfg(unix)]
+mod user_config_writer;
 pub use hook_write_deny::{profile_enforces_hook_write_deny, verify_hook_write_deny_enforced};
 pub use logging::SandboxLogger;
 pub use network_policy::{
@@ -48,6 +50,11 @@ pub use profiles::{
 };
 pub use read_deny_verify::{verify_data_write_deny_enforced, verify_read_deny_enforced};
 pub use types::{SandboxEvent, SandboxEventType, SandboxMetrics};
+#[cfg(unix)]
+pub use user_config_writer::{
+    exec_command_preserving_user_config_writer, install_user_config_writer,
+    run_user_config_helper_if_requested, write_user_config_if_live,
+};
 /// Whether this profile requires direct-hook write protection (non-devbox enforcing profiles).
 /// Shell fails closed when protection cannot be applied.
 pub fn requires_hook_write_deny(profile: &ProfileName, workspace: &Path) -> bool {
