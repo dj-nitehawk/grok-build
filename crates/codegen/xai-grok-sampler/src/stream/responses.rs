@@ -3,7 +3,7 @@
 //! Consumes a raw `rs::ResponseStreamEvent` stream and produces [`SamplingEvent`]s.
 //! Pure: no I/O, no shell coupling.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -31,6 +31,246 @@ const INCOMPLETE_REASON_MAX_OUTPUT_TOKENS: &str = "max_output_tokens";
 const INCOMPLETE_REASON_MAX_PROMPT_TOKENS: &str = "max_prompt_tokens";
 /// A server-side time limit cut generation short (xAI extension).
 const INCOMPLETE_REASON_MAX_TIME_LIMIT: &str = "max_time_limit";
+
+/// A single SSE frame must not allocate one part per `content_index`.
+/// Real Responses payloads use a handful of parts; this only rejects hostile gaps.
+const MAX_RECONCILED_CONTENT_PARTS: usize = 64;
+
+/// Reconcile before flattening, while output and content identities are available.
+#[derive(Default)]
+struct StreamedOutput {
+    items: BTreeMap<u32, rs::OutputItem>,
+    text: BTreeMap<(u32, u32), (String, String)>,
+    arguments: BTreeMap<u32, (String, String, Option<String>)>,
+    finished_calls: BTreeSet<String>,
+}
+
+impl StreamedOutput {
+    fn observe(&mut self, event: &rs::ResponseStreamEvent) {
+        use rs::ResponseStreamEvent::*;
+        match event {
+            ResponseOutputItemAdded(ev) => {
+                if let rs::OutputItem::FunctionCall(call) = &ev.item {
+                    self.arguments.entry(ev.output_index).or_insert_with(|| {
+                        (
+                            call.id.clone().unwrap_or_default(),
+                            call.arguments.clone(),
+                            Some(call.name.clone()),
+                        )
+                    });
+                }
+                self.items
+                    .entry(ev.output_index)
+                    .or_insert_with(|| ev.item.clone());
+            }
+            ResponseOutputItemDone(ev) => {
+                if let rs::OutputItem::FunctionCall(call) = &ev.item
+                    && !call.call_id.is_empty()
+                {
+                    self.finished_calls.insert(call.call_id.clone());
+                }
+                let mut item = ev.item.clone();
+                if let Some(previous) = self.items.get(&ev.output_index) {
+                    Self::fill_item(&mut item, previous);
+                }
+                self.items.insert(ev.output_index, item);
+            }
+            ResponseOutputTextDelta(ev) => {
+                let entry = self
+                    .text
+                    .entry((ev.output_index, ev.content_index))
+                    .or_insert_with(|| (ev.item_id.clone(), String::new()));
+                entry.1.push_str(&ev.delta);
+            }
+            ResponseOutputTextDone(ev) => {
+                if !ev.text.is_empty() {
+                    self.text.insert(
+                        (ev.output_index, ev.content_index),
+                        (ev.item_id.clone(), ev.text.clone()),
+                    );
+                }
+            }
+            ResponseFunctionCallArgumentsDelta(ev) => {
+                let entry = self
+                    .arguments
+                    .entry(ev.output_index)
+                    .or_insert_with(|| (ev.item_id.clone(), String::new(), None));
+                if entry.0.is_empty() {
+                    entry.0.clone_from(&ev.item_id);
+                }
+                entry.1.push_str(&ev.delta);
+            }
+            ResponseFunctionCallArgumentsDone(ev) => {
+                if !ev.item_id.is_empty() {
+                    self.finished_calls.insert(ev.item_id.clone());
+                }
+                let entry = self
+                    .arguments
+                    .entry(ev.output_index)
+                    .or_insert_with(|| (ev.item_id.clone(), String::new(), None));
+                if !ev.arguments.is_empty() {
+                    entry.1 = ev.arguments.clone();
+                }
+                entry.2 = ev.name.clone();
+            }
+            _ => {}
+        }
+    }
+
+    fn same_item(a: &rs::OutputItem, b: &rs::OutputItem) -> bool {
+        match (a, b) {
+            (rs::OutputItem::Message(a), rs::OutputItem::Message(b)) => {
+                !a.id.is_empty() && a.id == b.id
+            }
+            (rs::OutputItem::FunctionCall(a), rs::OutputItem::FunctionCall(b)) => {
+                (!a.call_id.is_empty() && a.call_id == b.call_id)
+                    || a.id
+                        .as_ref()
+                        .filter(|id| !id.is_empty())
+                        .is_some_and(|id| b.id.as_ref() == Some(id))
+            }
+            _ => false,
+        }
+    }
+
+    fn fill_item(item: &mut rs::OutputItem, fallback: &rs::OutputItem) {
+        match (item, fallback) {
+            (rs::OutputItem::Message(item), rs::OutputItem::Message(fallback)) => {
+                for (index, part) in fallback.content.iter().enumerate() {
+                    match (item.content.get_mut(index), part) {
+                        (
+                            Some(rs::OutputMessageContent::OutputText(text)),
+                            rs::OutputMessageContent::OutputText(other),
+                        ) if text.text.is_empty() || other.text.starts_with(&text.text) => {
+                            text.text.clone_from(&other.text)
+                        }
+                        (None, _) => item.content.push(part.clone()),
+                        _ => {}
+                    }
+                }
+            }
+            (rs::OutputItem::FunctionCall(item), rs::OutputItem::FunctionCall(fallback)) => {
+                if item.call_id.is_empty() {
+                    item.call_id.clone_from(&fallback.call_id);
+                }
+                if item.name.is_empty() {
+                    item.name.clone_from(&fallback.name);
+                }
+                if item.arguments.is_empty() || fallback.arguments.starts_with(&item.arguments) {
+                    item.arguments.clone_from(&fallback.arguments);
+                }
+                if item.id.is_none() {
+                    item.id.clone_from(&fallback.id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn reconcile(mut self, response: &mut rs::Response) {
+        for ((output_index, content_index), (id, text)) in self.text {
+            let item = self.items.entry(output_index).or_insert_with(|| {
+                rs::OutputItem::Message(rs::OutputMessage {
+                    id,
+                    content: Vec::new(),
+                    role: rs::AssistantRole::Assistant,
+                    status: rs::OutputStatus::Completed,
+                })
+            });
+            if let rs::OutputItem::Message(message) = item {
+                if content_index as usize >= MAX_RECONCILED_CONTENT_PARTS {
+                    if message.content.len() < MAX_RECONCILED_CONTENT_PARTS {
+                        message.content.push(rs::OutputMessageContent::OutputText(
+                            rs::OutputTextContent {
+                                text,
+                                annotations: Vec::new(),
+                                logprobs: None,
+                            },
+                        ));
+                    }
+                    continue;
+                }
+                while message.content.len() <= content_index as usize {
+                    message.content.push(rs::OutputMessageContent::OutputText(
+                        rs::OutputTextContent {
+                            text: String::new(),
+                            annotations: Vec::new(),
+                            logprobs: None,
+                        },
+                    ));
+                }
+                if let Some(rs::OutputMessageContent::OutputText(existing)) =
+                    message.content.get_mut(content_index as usize)
+                    && (existing.text.is_empty() || text.starts_with(&existing.text))
+                {
+                    existing.text = text;
+                }
+            }
+        }
+        for (index, (id, arguments, name)) in self.arguments {
+            // An arguments-only frame has no call_id; never invent an executable call.
+            let snapshot_call = response.output.iter_mut().find(|item| {
+                matches!(item, rs::OutputItem::FunctionCall(call)
+                    if !id.is_empty() && call.id.as_deref() == Some(id.as_str()))
+            });
+            let item = self
+                .items
+                .get_mut(&index)
+                .filter(|item| {
+                    matches!(item, rs::OutputItem::FunctionCall(call)
+                        if call.id.as_deref().is_none_or(|item_id| item_id == id))
+                })
+                .or(snapshot_call);
+            if let Some(rs::OutputItem::FunctionCall(call)) = item {
+                if call.arguments.is_empty() || arguments.starts_with(&call.arguments) {
+                    call.arguments = arguments;
+                }
+                if call.name.is_empty() {
+                    call.name = name.unwrap_or_default();
+                }
+                if call.id.is_none() && !id.is_empty() {
+                    call.id = Some(id);
+                }
+            }
+        }
+        let mut output: Vec<_> = std::mem::take(&mut response.output)
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let index = self
+                    .items
+                    .iter()
+                    .find(|(_, streamed)| Self::same_item(&item, streamed))
+                    .map(|(index, _)| *index as usize)
+                    .unwrap_or(index);
+                (index, true, item)
+            })
+            .collect();
+        for (index, fallback) in self.items {
+            if !matches!(
+                fallback,
+                rs::OutputItem::Message(_) | rs::OutputItem::FunctionCall(_)
+            ) {
+                continue;
+            }
+            if let Some((_, _, item)) = output
+                .iter_mut()
+                .find(|(_, _, item)| Self::same_item(item, &fallback))
+            {
+                Self::fill_item(item, &fallback);
+            } else {
+                if let rs::OutputItem::FunctionCall(call) = &fallback
+                    && (call.call_id.is_empty() || call.name.is_empty())
+                {
+                    continue;
+                }
+                output.push((index as usize, false, fallback));
+            }
+        }
+        output.sort_by_key(|(index, snapshot, _)| (*index, *snapshot));
+        response.output = output.into_iter().map(|(_, _, item)| item).collect();
+    }
+}
 
 /// Returns whether a Responses API event reflects real model progress rather than a liveness-only heartbeat or status transition.
 pub(crate) fn responses_event_has_meaningful_content(event: &rs::ResponseStreamEvent) -> bool {
@@ -246,6 +486,7 @@ pub(crate) fn stream_responses_tracked<'a>(
         let mut message_chunk_count: u64 = 0;
         let mut first_token_emitted = false;
         let mut reasoning_acc = String::new();
+        let mut streamed_output = StreamedOutput::default();
         let mut last_content_chunk_at = Instant::now();
 
         // Maps Responses API `output_index` to our tool-only `tool_index`.
@@ -253,6 +494,7 @@ pub(crate) fn stream_responses_tracked<'a>(
         // Later `ResponseFunctionCallArgumentsDelta` events look up `output_index` here to find the matching `tool_index`
         let mut output_to_tool_index: BTreeMap<u32, u32> = BTreeMap::new();
         let mut next_tool_index: u32 = 0;
+
 
         let mut stream = raw_stream;
         loop {
@@ -326,6 +568,7 @@ pub(crate) fn stream_responses_tracked<'a>(
                 return;
             }
 
+            streamed_output.observe(&event);
             let event_has_content = responses_event_has_meaningful_content(&event);
 
             // Track whether ResponseIncomplete should break the loop after the content-aware idle check below
@@ -394,10 +637,14 @@ pub(crate) fn stream_responses_tracked<'a>(
 
                 // Start of a Responses FunctionCall: emit the initial id and name, and remember the output_index to tool_index mapping
                 ResponseStreamEvent::ResponseOutputItemAdded(added_event) => {
-                    if let rs::OutputItem::FunctionCall(fc) = added_event.item {
-                        let tool_index = next_tool_index;
-                        next_tool_index += 1;
-                        output_to_tool_index.insert(added_event.output_index, tool_index);
+                    if let rs::OutputItem::FunctionCall(fc) = added_event.item
+                        && !output_to_tool_index.contains_key(&added_event.output_index)
+                    {
+                        let tool_index = *output_to_tool_index.entry(added_event.output_index).or_insert_with(|| {
+                            let index = next_tool_index;
+                            next_tool_index += 1;
+                            index
+                        });
 
                         yield SamplingEvent::ToolCallDelta {
                             request_id: request_id.clone(),
@@ -637,9 +884,24 @@ pub(crate) fn stream_responses_tracked<'a>(
             .as_ref()
             .map(|d| d.reason.clone());
 
-        // Convert to ConversationItem(s); patch in accumulated reasoning text as a fallback when the final response lacks `content` or `summary`
-        // The streaming deltas may have arrived out of band
-        // Splice policy lives in `inject_streaming_reasoning_fallback`.
+        let finished_calls = streamed_output.finished_calls.clone();
+        let snapshot_call_ids: BTreeSet<_> = response
+            .output
+            .iter()
+            .filter_map(|item| match item {
+                rs::OutputItem::FunctionCall(call) => Some(call.call_id.clone()),
+                _ => None,
+            })
+            .collect();
+        streamed_output.reconcile(&mut response);
+        if matches!(status, Status::Incomplete) {
+            response.output.retain(|item| {
+                !matches!(item, rs::OutputItem::FunctionCall(call)
+                    if !snapshot_call_ids.contains(&call.call_id)
+                        && !call.id.as_ref().is_some_and(|id| finished_calls.contains(id))
+                        && !finished_calls.contains(&call.call_id))
+            });
+        }
         let mut items = xai_grok_sampling_types::response_to_conversation_items(response);
         xai_grok_sampling_types::inject_streaming_reasoning_fallback(&mut items, reasoning_acc);
 
@@ -1079,6 +1341,31 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn incomplete_with_finished_tool_arguments_preserves_call() {
+        let raw = stream::iter(vec![
+            Ok(function_call_added_with_args(0, "call_1", "bash", "{}")),
+            Ok(function_call_done_event(0, "call_1", "bash", "{}")),
+            Ok(incomplete_event("max_output_tokens")),
+        ])
+        .boxed();
+        let events = collect(stream_responses(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        match events.last().unwrap() {
+            SamplingEvent::Completed { response, .. } => {
+                assert_eq!(response.tool_calls().len(), 1);
+                assert_eq!(response.stop_reason, Some(StopReason::ToolCalls));
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
     /// The unknown-reason arm is the forward-compatibility story.
     /// A wire value this client has never seen collapses to Length (salvageable, never a parse failure) and carries no raw reason.
     #[tokio::test]
@@ -1117,6 +1404,49 @@ mod tests {
         match events.last().unwrap() {
             SamplingEvent::Completed { response, .. } => {
                 assert_eq!(response.stop_reason, Some(StopReason::Stop));
+                assert_eq!(
+                    response.assistant().map(|a| a.content.as_ref()),
+                    Some("hello"),
+                    "streamed deltas must land on the assistant so empty-response retries do not concatenate"
+                );
+                assert!(
+                    response.empty_reason().is_none(),
+                    "a streamed greeting must not be classified empty"
+                );
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    fn text_done_event(text: &str) -> rs::ResponseStreamEvent {
+        rs::ResponseStreamEvent::ResponseOutputTextDone(rs_types::ResponseTextDoneEvent {
+            sequence_number: 0,
+            item_id: "item-1".into(),
+            output_index: 0,
+            content_index: 0,
+            text: text.into(),
+            logprobs: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn output_text_done_without_deltas_fills_empty_snapshot() {
+        let raw = stream::iter(vec![Ok(text_done_event("hello")), Ok(completed_event())]).boxed();
+        let events = collect(stream_responses(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        match events.last().unwrap() {
+            SamplingEvent::Completed { response, .. } => {
+                assert_eq!(
+                    response.assistant().map(|a| a.content.as_ref()),
+                    Some("hello")
+                );
+                assert!(response.empty_reason().is_none());
             }
             other => panic!("expected Completed, got {other:?}"),
         }
@@ -1401,21 +1731,353 @@ mod tests {
         assert_eq!(result.get("code"), Some(&serde_json::json!("print(1)")));
     }
 
+    fn message_item(id: &str, texts: &[&str]) -> rs::OutputItem {
+        rs::OutputItem::Message(rs::OutputMessage {
+            id: id.into(),
+            content: texts
+                .iter()
+                .map(|text| {
+                    rs::OutputMessageContent::OutputText(rs::OutputTextContent {
+                        text: (*text).into(),
+                        annotations: vec![],
+                        logprobs: None,
+                    })
+                })
+                .collect(),
+            role: rs::AssistantRole::Assistant,
+            status: rs::OutputStatus::Completed,
+        })
+    }
+
+    fn indexed_text(index: u32, content: u32, text: &str, done: bool) -> rs::ResponseStreamEvent {
+        let mut event = if done {
+            text_done_event(text)
+        } else {
+            text_delta_event(text)
+        };
+        match &mut event {
+            rs::ResponseStreamEvent::ResponseOutputTextDelta(ev) => {
+                ev.output_index = index;
+                ev.content_index = content;
+                ev.item_id = format!("msg-{index}");
+            }
+            rs::ResponseStreamEvent::ResponseOutputTextDone(ev) => {
+                ev.output_index = index;
+                ev.content_index = content;
+                ev.item_id = format!("msg-{index}");
+            }
+            _ => unreachable!(),
+        }
+        event
+    }
+
+    #[tokio::test]
+    async fn text_recovery_reconciles_multiple_items_parts_and_done_frames() {
+        let mut response = empty_completed_response();
+        // The compact snapshot omits the first message and one content part.
+        response.output = vec![message_item("msg-2", &["second"])];
+        let frames = vec![
+            indexed_text(0, 0, "hel", false),
+            indexed_text(2, 0, "second", false),
+            indexed_text(0, 0, "hello", true),
+            indexed_text(0, 1, "world", true),
+            indexed_text(2, 1, "tail", true),
+            rs::ResponseStreamEvent::ResponseCompleted(rs::ResponseCompletedEvent {
+                response,
+                sequence_number: 0,
+            }),
+        ];
+        let events = collect(stream_responses(
+            stream::iter(frames.into_iter().map(Ok)).boxed(),
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        let SamplingEvent::Completed { response, .. } = events.last().unwrap() else {
+            panic!("missing completion")
+        };
+        assert_eq!(
+            response.assistant().unwrap().content.as_ref(),
+            "hello\nworld\nsecond\ntail"
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_recovery_merges_partial_snapshot_by_item_id_and_preserves_other_calls() {
+        let mut response = empty_completed_response();
+        let mut snapshot = function_tool_call("", "", "{\"x\":");
+        snapshot.id = Some("item-1".into());
+        response.output = vec![rs::OutputItem::FunctionCall(snapshot)];
+        let mut first = function_tool_call("call-1", "read_file", "");
+        first.id = Some("item-1".into());
+        let frames = vec![
+            rs::ResponseStreamEvent::ResponseOutputItemAdded(rs::ResponseOutputItemAddedEvent {
+                output_index: 1,
+                item: rs::OutputItem::FunctionCall(first),
+                sequence_number: 0,
+            }),
+            function_call_args_delta_event(1, "{\"x\":1}"),
+            function_call_added_with_args(3, "call-2", "bash", "{}"),
+            rs::ResponseStreamEvent::ResponseCompleted(rs::ResponseCompletedEvent {
+                response,
+                sequence_number: 0,
+            }),
+        ];
+        let events = collect(stream_responses(
+            stream::iter(frames.into_iter().map(Ok)).boxed(),
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        let SamplingEvent::Completed { response, .. } = events.last().unwrap() else {
+            panic!("missing completion")
+        };
+        let calls = &response.assistant().unwrap().tool_calls;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id.as_ref(), "call-1");
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].arguments.as_ref(), "{\"x\":1}");
+        assert_eq!(calls[1].id.as_ref(), "call-2");
+    }
+
+    #[tokio::test]
+    async fn repeated_tool_added_and_done_do_not_duplicate_calls_or_headers() {
+        let frames = vec![
+            function_call_added_event(0, "call-1", "bash"),
+            function_call_added_event(0, "call-1", "bash"),
+            function_call_args_delta_event(0, "{}"),
+            function_call_done_event(0, "call-1", "bash", ""),
+            completed_event(),
+        ];
+        let events = collect(stream_responses(
+            stream::iter(frames.into_iter().map(Ok)).boxed(),
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        assert_eq!(tool_call_deltas(&events).len(), 2);
+        let SamplingEvent::Completed { response, .. } = events.last().unwrap() else {
+            panic!("missing completion")
+        };
+        let calls = &response.assistant().unwrap().tool_calls;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].arguments.as_ref(), "{}");
+    }
+
+    #[test]
+    fn snapshot_conflicts_win_without_losing_streamed_siblings() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(&indexed_text(0, 0, "stream", false));
+        streamed.observe(&indexed_text(0, 1, "sibling", true));
+        let mut response = empty_completed_response();
+        response.output = vec![message_item("msg-0", &["snapshot"])];
+        streamed.reconcile(&mut response);
+        let items = xai_grok_sampling_types::response_to_conversation_items(response);
+        let ConversationItem::Assistant(assistant) = items.last().unwrap() else {
+            panic!("missing assistant")
+        };
+        assert_eq!(assistant.content.as_ref(), "snapshot\nsibling");
+    }
+
+    #[test]
+    fn sparse_snapshot_uses_streamed_indices_not_compacted_positions() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(&indexed_text(1, 0, "first", true));
+        streamed.observe(&indexed_text(3, 0, "last", true));
+        let mut response = empty_completed_response();
+        response.output = vec![message_item("msg-3", &["last"])];
+        streamed.reconcile(&mut response);
+        let items = xai_grok_sampling_types::response_to_conversation_items(response);
+        let ConversationItem::Assistant(assistant) = items.last().unwrap() else {
+            panic!("missing assistant")
+        };
+        assert_eq!(assistant.content.as_ref(), "first\nlast");
+    }
+
+    #[test]
+    fn absurd_content_index_does_not_materialize_empty_parts() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(&indexed_text(0, 50_000, "kept", true));
+        let mut response = empty_completed_response();
+        streamed.reconcile(&mut response);
+        let rs::OutputItem::Message(message) = &response.output[0] else {
+            panic!("missing message");
+        };
+        assert!(
+            message.content.len() <= 64,
+            "content parts {}",
+            message.content.len()
+        );
+        let text = message
+            .content
+            .iter()
+            .filter_map(|part| match part {
+                rs::OutputMessageContent::OutputText(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert_eq!(text, "kept");
+    }
+
+    #[test]
+    fn arguments_before_added_and_empty_done_keep_partial_call() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(&function_call_args_delta_event(0, "{\"partial\":"));
+        streamed.observe(&function_call_added_event(0, "call-1", "bash"));
+        streamed.observe(&function_call_done_event(0, "call-1", "bash", ""));
+        let mut response = empty_completed_response();
+        streamed.reconcile(&mut response);
+        let rs::OutputItem::FunctionCall(call) = &response.output[0] else {
+            panic!("missing call")
+        };
+        assert_eq!(call.call_id, "call-1");
+        assert_eq!(call.arguments, "{\"partial\":");
+    }
+
+    #[test]
+    fn arguments_from_another_item_do_not_override_indexed_call() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(
+            &rs::ResponseStreamEvent::ResponseFunctionCallArgumentsDelta(
+                rs_types::ResponseFunctionCallArgumentsDeltaEvent {
+                    sequence_number: 0,
+                    output_index: 0,
+                    item_id: "item-A".into(),
+                    delta: "{\"secret\":true}".into(),
+                },
+            ),
+        );
+        let mut call_b = function_tool_call("call-B", "bash", "");
+        call_b.id = Some("item-B".into());
+        streamed.observe(&rs::ResponseStreamEvent::ResponseOutputItemAdded(
+            rs_types::ResponseOutputItemAddedEvent {
+                sequence_number: 1,
+                output_index: 0,
+                item: rs_types::OutputItem::FunctionCall(call_b),
+            },
+        ));
+        let mut call_a = function_tool_call("call-A", "bash", "{}");
+        call_a.id = Some("item-A".into());
+        let mut response = empty_completed_response();
+        response.output.push(rs::OutputItem::FunctionCall(call_a));
+        streamed.reconcile(&mut response);
+        let calls: Vec<_> = response
+            .output
+            .iter()
+            .filter_map(|item| match item {
+                rs::OutputItem::FunctionCall(call) => Some(call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].call_id, "call-B");
+        assert_eq!(calls[0].arguments, "");
+        assert_eq!(calls[1].call_id, "call-A");
+        assert_eq!(calls[1].arguments, "{}");
+    }
+
+    #[test]
+    fn message_done_without_text_frames_recovers_all_parts() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(&rs::ResponseStreamEvent::ResponseOutputItemDone(
+            rs::ResponseOutputItemDoneEvent {
+                output_index: 0,
+                sequence_number: 0,
+                item: message_item("msg-0", &["one", "two"]),
+            },
+        ));
+        let mut response = empty_completed_response();
+        streamed.reconcile(&mut response);
+        let items = xai_grok_sampling_types::response_to_conversation_items(response);
+        let ConversationItem::Assistant(assistant) = items.last().unwrap() else {
+            panic!("missing assistant")
+        };
+        assert_eq!(assistant.content.as_ref(), "one\ntwo");
+    }
+
+    #[test]
+    fn arguments_only_frames_can_complete_an_identified_snapshot_call() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(&function_call_args_delta_event(4, "{\"x\":1}"));
+        let mut call = function_tool_call("call-4", "bash", "");
+        call.id = Some("item-4".into());
+        let mut response = empty_completed_response();
+        response.output = vec![rs::OutputItem::FunctionCall(call)];
+        streamed.reconcile(&mut response);
+        assert_eq!(response.output.len(), 1);
+        let rs::OutputItem::FunctionCall(call) = &response.output[0] else {
+            panic!("missing call")
+        };
+        assert_eq!(call.arguments, "{\"x\":1}");
+    }
+
+    #[test]
+    fn initial_arguments_and_deltas_merge_without_losing_the_prefix() {
+        let mut streamed = StreamedOutput::default();
+        streamed.observe(&function_call_added_with_args(
+            0, "call-1", "bash", "{\"x\":",
+        ));
+        streamed.observe(&function_call_args_delta_event(0, "1}"));
+        let mut response = empty_completed_response();
+        streamed.reconcile(&mut response);
+        let rs::OutputItem::FunctionCall(call) = &response.output[0] else {
+            panic!("missing call")
+        };
+        assert_eq!(call.arguments, "{\"x\":1}");
+    }
+
+    fn function_tool_call(
+        call_id: &str,
+        name: &str,
+        arguments: &str,
+    ) -> rs_types::FunctionToolCall {
+        rs_types::FunctionToolCall {
+            arguments: arguments.into(),
+            call_id: call_id.into(),
+            name: name.into(),
+            id: None,
+            status: None,
+        }
+    }
+
     fn function_call_added_event(
         output_index: u32,
         call_id: &str,
         name: &str,
     ) -> rs::ResponseStreamEvent {
+        function_call_added_with_args(output_index, call_id, name, "")
+    }
+
+    fn function_call_added_with_args(
+        output_index: u32,
+        call_id: &str,
+        name: &str,
+        arguments: &str,
+    ) -> rs::ResponseStreamEvent {
         rs::ResponseStreamEvent::ResponseOutputItemAdded(rs_types::ResponseOutputItemAddedEvent {
             sequence_number: 0,
             output_index,
-            item: rs_types::OutputItem::FunctionCall(rs_types::FunctionToolCall {
-                arguments: String::new(),
-                call_id: call_id.into(),
-                name: name.into(),
-                id: None,
-                status: None,
-            }),
+            item: rs_types::OutputItem::FunctionCall(function_tool_call(call_id, name, arguments)),
+        })
+    }
+
+    fn function_call_done_event(
+        output_index: u32,
+        call_id: &str,
+        name: &str,
+        arguments: &str,
+    ) -> rs::ResponseStreamEvent {
+        rs::ResponseStreamEvent::ResponseOutputItemDone(rs_types::ResponseOutputItemDoneEvent {
+            sequence_number: 0,
+            output_index,
+            item: rs_types::OutputItem::FunctionCall(function_tool_call(call_id, name, arguments)),
         })
     }
 
@@ -1484,6 +2146,163 @@ mod tests {
         assert_eq!(d1.2, None);
         assert_eq!(d1.3.as_deref(), Some("{\"x\":"));
         assert_eq!(d2.3.as_deref(), Some("1}"));
+
+        match evs.last().unwrap() {
+            SamplingEvent::Completed { response, .. } => {
+                let assistant = response.assistant().expect("assistant");
+                assert_eq!(assistant.tool_calls.len(), 1);
+                assert_eq!(assistant.tool_calls[0].id.as_ref(), "call_xyz");
+                assert_eq!(assistant.tool_calls[0].name, "do_thing");
+                assert_eq!(assistant.tool_calls[0].arguments.as_ref(), "{\"x\":1}");
+                assert_eq!(response.stop_reason, Some(StopReason::ToolCalls));
+                assert!(
+                    response.empty_reason().is_none(),
+                    "streamed function calls must not be classified empty"
+                );
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    /// Codex (`store: false`) can emit a complete FunctionCall on Added, then
+    /// `response.completed` with an empty `output` array. Astra turns that look
+    /// like `writing_tool_call` then `empty response | retrying`.
+    #[tokio::test]
+    async fn function_call_on_added_fills_empty_snapshot() {
+        let events: Vec<Result<rs::ResponseStreamEvent, SamplingError>> = vec![
+            Ok(function_call_added_with_args(
+                0,
+                "call_xyz",
+                "read_file",
+                "{\"target_file\":\"foo.rs\"}",
+            )),
+            Ok(completed_event()),
+        ];
+        let raw = stream::iter(events).boxed();
+        let evs = collect(stream_responses(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        match evs.last().unwrap() {
+            SamplingEvent::Completed { response, .. } => {
+                let assistant = response.assistant().expect("assistant");
+                assert_eq!(assistant.tool_calls.len(), 1);
+                assert_eq!(assistant.tool_calls[0].id.as_ref(), "call_xyz");
+                assert_eq!(assistant.tool_calls[0].name, "read_file");
+                assert_eq!(
+                    assistant.tool_calls[0].arguments.as_ref(),
+                    "{\"target_file\":\"foo.rs\"}"
+                );
+                assert_eq!(response.stop_reason, Some(StopReason::ToolCalls));
+                assert!(response.empty_reason().is_none());
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn incomplete_response_does_not_execute_unfinished_streamed_call() {
+        let raw = stream::iter(vec![
+            Ok(function_call_added_with_args(0, "call_1", "bash", "{}")),
+            Ok(incomplete_event("max_output_tokens")),
+        ])
+        .boxed();
+        let events = collect(stream_responses(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        match events.last().unwrap() {
+            SamplingEvent::Completed { response, .. } => {
+                assert!(response.tool_calls().is_empty());
+                assert_eq!(response.stop_reason, Some(StopReason::Length));
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn function_call_on_done_fills_empty_snapshot() {
+        let events: Vec<Result<rs::ResponseStreamEvent, SamplingError>> = vec![
+            Ok(function_call_done_event(
+                0,
+                "call_xyz",
+                "read_file",
+                "{\"target_file\":\"foo.rs\"}",
+            )),
+            Ok(completed_event()),
+        ];
+        let raw = stream::iter(events).boxed();
+        let evs = collect(stream_responses(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        match evs.last().unwrap() {
+            SamplingEvent::Completed { response, .. } => {
+                let assistant = response.assistant().expect("assistant");
+                assert_eq!(assistant.tool_calls.len(), 1);
+                assert_eq!(assistant.tool_calls[0].name, "read_file");
+                assert_eq!(
+                    assistant.tool_calls[0].arguments.as_ref(),
+                    "{\"target_file\":\"foo.rs\"}"
+                );
+                assert!(response.empty_reason().is_none());
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn function_call_fallback_preserves_distinct_snapshot_calls() {
+        let mut response = empty_completed_response();
+        response.output = vec![rs_types::OutputItem::FunctionCall(function_tool_call(
+            "from_snapshot",
+            "bash",
+            "{}",
+        ))];
+        let completed =
+            rs::ResponseStreamEvent::ResponseCompleted(rs_types::ResponseCompletedEvent {
+                response,
+                sequence_number: 0,
+            });
+        let events: Vec<Result<rs::ResponseStreamEvent, SamplingError>> = vec![
+            Ok(function_call_added_with_args(
+                0,
+                "from_stream",
+                "read_file",
+                "{\"x\":1}",
+            )),
+            Ok(completed),
+        ];
+        let raw = stream::iter(events).boxed();
+        let evs = collect(stream_responses(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+            None,
+        ))
+        .await;
+        match evs.last().unwrap() {
+            SamplingEvent::Completed { response, .. } => {
+                let assistant = response.assistant().expect("assistant");
+                assert_eq!(assistant.tool_calls.len(), 2);
+                assert_eq!(assistant.tool_calls[1].id.as_ref(), "from_snapshot");
+                assert_eq!(assistant.tool_calls[1].name, "bash");
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
     }
 
     #[tokio::test]

@@ -553,6 +553,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         TaskResult::ForkSessionFailed { agent_id, error } => {
             handle_fork_session_failed(app, agent_id, error)
         }
+        TaskResult::ChatgptQuotaFetched { request, result } => {
+            crate::app::provider_quota::complete(app, request, result)
+        }
         TaskResult::BillingFetched {
             agent_id,
             balance,

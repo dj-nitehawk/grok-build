@@ -23,6 +23,47 @@ fn test_conversation_request_to_responses_api() {
 }
 
 #[test]
+fn lift_system_input_to_instructions_moves_system_out_of_input() {
+    let req = ConversationRequest::from_items(vec![
+        ConversationItem::system("System prompt"),
+        ConversationItem::user("hello"),
+        ConversationItem::system("later system"),
+    ]);
+    let mut responses_req: rs::CreateResponse = (&req).into();
+    assert!(responses_req.instructions.is_none());
+
+    super::responses::lift_system_input_to_instructions(&mut responses_req);
+
+    assert_eq!(
+        responses_req.instructions.as_deref(),
+        Some("System prompt\n\nlater system")
+    );
+    let rs::InputParam::Items(items) = &responses_req.input else {
+        panic!("Expected Items input");
+    };
+    assert_eq!(items.len(), 1);
+    match items.first() {
+        Some(rs::InputItem::EasyMessage(m)) => {
+            assert_eq!(m.role, rs::Role::User);
+            assert_eq!(m.content, rs::EasyInputContent::Text("hello".into()));
+        }
+        other => panic!("expected remaining user message, got {other:?}"),
+    }
+}
+
+#[test]
+fn lift_system_input_to_instructions_is_a_no_op_without_system() {
+    let req = ConversationRequest::from_items(vec![ConversationItem::user("hello")]);
+    let mut responses_req: rs::CreateResponse = (&req).into();
+    super::responses::lift_system_input_to_instructions(&mut responses_req);
+    assert!(responses_req.instructions.is_none());
+    let rs::InputParam::Items(items) = responses_req.input else {
+        panic!("Expected Items input");
+    };
+    assert_eq!(items.len(), 1);
+}
+
+#[test]
 fn function_tool_colliding_with_hosted_web_search_is_dropped() {
     let mut req =
         ConversationRequest::from_items(vec![ConversationItem::user("hi")]).with_tools(vec![
